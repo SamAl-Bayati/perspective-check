@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+    Arial, Apple Color Emoji, Segoe UI Emoji;
+  color: #0f172a;
+  background: radial-gradient(circle at top, #e2e8f0 0%, #f8fafc 45%, #ffffff 100%);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+* {
+  box-sizing: border-box;
+}
