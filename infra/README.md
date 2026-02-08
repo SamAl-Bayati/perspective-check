@@ -11,16 +11,16 @@
 - S3 bucket and DynamoDB table for remote state locking
 
 ## Initial setup
-1. Create backend config files
+1. Update tracked backend config files
 ```bash
-cp backend/dev.s3.tfbackend.example backend/dev.s3.tfbackend
-cp backend/prod.s3.tfbackend.example backend/prod.s3.tfbackend
+vi backend/dev.s3.tfbackend
+vi backend/prod.s3.tfbackend
 ```
 
-2. Create environment variable files
+2. Update tracked environment variable files
 ```bash
-cp env/dev.tfvars.example env/dev.tfvars
-cp env/prod.tfvars.example env/prod.tfvars
+vi env/dev.tfvars
+vi env/prod.tfvars
 ```
 
 3. Initialize infra for an environment

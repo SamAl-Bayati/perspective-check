@@ -60,7 +60,7 @@ jobs:
           backend_key="${key_prefix}/${target_env}/terraform.tfstate"
 
           echo "target_env=${target_env}" >> "${GITHUB_OUTPUT}"
-          echo "tfvars_file=env/${target_env}.tfvars.example" >> "${GITHUB_OUTPUT}"
+          echo "tfvars_file=env/${target_env}.tfvars" >> "${GITHUB_OUTPUT}"
           echo "backend_key=${backend_key}" >> "${GITHUB_OUTPUT}"
 
       - name: Validate GitHub Actions config
@@ -172,7 +172,7 @@ jobs:
       - name: Generate backend config
         run: |
           set -euo pipefail
-          cat <<EOF > infra/backend/ci.s3.tfbackend
+          cat <<EOF > infra/backend/${{ steps.meta.outputs.target_env }}.s3.tfbackend
           bucket         = "${TF_STATE_BUCKET}"
           key            = "${{ steps.meta.outputs.backend_key }}"
           region         = "${AWS_REGION}"
@@ -182,7 +182,7 @@ jobs:
 
       - name: Init OpenTofu backend
         working-directory: infra
-        run: tofu init -reconfigure -backend-config=backend/ci.s3.tfbackend
+        run: tofu init -reconfigure -backend-config=backend/${{ steps.meta.outputs.target_env }}.s3.tfbackend
 
       - name: Plan
         working-directory: infra

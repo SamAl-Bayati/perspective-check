@@ -141,9 +141,11 @@ vite.config.ts.timestamp-*
 # Project specific
 backend/build/
 infra/env/*.tfvars
-!infra/env/*.tfvars.example
+!infra/env/dev.tfvars
+!infra/env/prod.tfvars
 infra/backend/*.tfbackend
-!infra/backend/*.tfbackend.example
+!infra/backend/dev.s3.tfbackend
+!infra/backend/prod.s3.tfbackend
 infra/.terraform/
 **/.terraform/
 *.tfstate
