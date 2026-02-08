@@ -128,6 +128,12 @@ jobs:
       - name: Build Lambda package
         run: make lambda-package
 
+      - name: Verify Lambda artifact architecture
+        run: |
+          set -euo pipefail
+          file backend/build/bootstrap
+          file backend/build/bootstrap | grep -q "ARM aarch64"
+
       - name: Check remote state resources
         id: backend_check
         run: |
@@ -191,6 +197,27 @@ jobs:
       - name: Apply
         working-directory: infra
         run: tofu apply -input=false -auto-approve tfplan
+
+      - name: Backend health check
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          api_endpoint="$(tofu output -raw api_endpoint)"
+          health_url="${api_endpoint%/}/health"
+          response_file="$(mktemp)"
+          status_code="$(curl -sS -o "${response_file}" -w "%{http_code}" "${health_url}")"
+
+          if [ "${status_code}" != "200" ]; then
+            echo "::error::Health check failed with status ${status_code} at ${health_url}"
+            cat "${response_file}"
+            exit 1
+          fi
+
+          if ! tr -d '[:space:]' < "${response_file}" | grep -q '"ok":true'; then
+            echo "::error::Health check payload did not contain ok=true at ${health_url}"
+            cat "${response_file}"
+            exit 1
+          fi
 
       - name: Capture outputs
         working-directory: infra
