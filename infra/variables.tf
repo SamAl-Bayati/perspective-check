@@ -71,6 +71,17 @@ variable "lambda_runtime" {
   default     = "provided.al2023"
 }
 
+variable "lambda_architecture" {
+  description = "Lambda architecture"
+  type        = string
+  default     = "arm64"
+
+  validation {
+    condition     = contains(["arm64", "x86_64"], var.lambda_architecture)
+    error_message = "lambda_architecture must be either arm64 or x86_64."
+  }
+}
+
 variable "lambda_zip_path" {
   description = "Path to Lambda deployment zip"
   type        = string
@@ -93,4 +104,22 @@ variable "enable_lambda_tracing" {
   description = "Enable active X-Ray tracing for Lambda"
   type        = bool
   default     = true
+}
+
+variable "api_cors_allow_origins" {
+  description = "Allowed CORS origins for the backend HTTP API"
+  type        = list(string)
+  default     = ["*"]
+}
+
+variable "api_cors_allow_methods" {
+  description = "Allowed CORS methods for the backend HTTP API"
+  type        = list(string)
+  default     = ["GET", "OPTIONS"]
+}
+
+variable "api_cors_allow_headers" {
+  description = "Allowed CORS headers for the backend HTTP API"
+  type        = list(string)
+  default     = ["content-type", "authorization"]
 }

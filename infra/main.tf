@@ -26,10 +26,14 @@ module "lambda_api" {
   function_name            = var.lambda_function_name
   handler                  = var.lambda_handler
   runtime                  = var.lambda_runtime
+  architecture             = var.lambda_architecture
   zip_path                 = var.lambda_zip_path
   environment              = var.environment
   lambda_log_retention     = var.lambda_log_retention_days
   api_access_log_retention = var.api_access_log_retention_days
   enable_lambda_tracing    = var.enable_lambda_tracing
+  api_cors_allow_origins   = var.api_cors_allow_origins
+  api_cors_allow_methods   = var.api_cors_allow_methods
+  api_cors_allow_headers   = var.api_cors_allow_headers
   tags                     = local.tags
 }

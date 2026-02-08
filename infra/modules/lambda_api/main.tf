@@ -38,6 +38,7 @@ resource "aws_lambda_function" "this" {
   role          = aws_iam_role.lambda_exec.arn
   handler       = var.handler
   runtime       = var.runtime
+  architectures = [var.architecture]
   filename      = var.zip_path
   publish       = true
 
@@ -57,7 +58,14 @@ resource "aws_lambda_function" "this" {
 resource "aws_apigatewayv2_api" "this" {
   name          = "${var.function_name}-${var.environment}-http-api"
   protocol_type = "HTTP"
-  tags          = var.tags
+
+  cors_configuration {
+    allow_origins = var.api_cors_allow_origins
+    allow_methods = var.api_cors_allow_methods
+    allow_headers = var.api_cors_allow_headers
+  }
+
+  tags = var.tags
 }
 
 resource "aws_apigatewayv2_integration" "lambda" {
