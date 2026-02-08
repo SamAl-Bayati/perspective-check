@@ -43,10 +43,10 @@ function App() {
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-16">
       <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Modern Webdev Template
+          PerspectiveCheck
         </h1>
         <p className="mt-3 text-slate-600">
-          Reusable baseline scaffold optimized for fast iteration and low overhead.
+          Inspect 3D model files in a lightweight web app foundation.
         </p>
 
         <div className="mt-8 grid gap-6 md:grid-cols-2">
@@ -56,6 +56,7 @@ function App() {
               <li>Frontend placeholder with API health check wiring</li>
               <li>Backend health endpoint for readiness checks</li>
               <li>AWS infra skeleton for Amplify and Lambda + API Gateway</li>
+              <li>Planned support for STL, 3MF, OBJ, FBX, glTF, and GLB workflows</li>
               <li>CI checks for lint, typecheck, build, tests, and infra validation</li>
             </ul>
           </div>

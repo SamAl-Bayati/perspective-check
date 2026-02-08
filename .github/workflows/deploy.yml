@@ -1,0 +1,208 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - dev
+      - prod
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: true
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  TF_LOCK_TABLE: ${{ vars.TF_LOCK_TABLE }}
+  TF_STATE_KEY_PREFIX: ${{ vars.TF_STATE_KEY_PREFIX }}
+  AMPLIFY_GITHUB_TOKEN: ${{ secrets.AMPLIFY_GITHUB_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name }}
+
+    steps:
+      - name: Resolve target environment
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            target_env="${{ github.event.inputs.environment }}"
+          else
+            target_env="${GITHUB_REF_NAME}"
+          fi
+
+          case "${target_env}" in
+            dev|prod)
+              ;;
+            *)
+              echo "::error::Unsupported environment '${target_env}'"
+              exit 1
+              ;;
+          esac
+
+          key_prefix="${TF_STATE_KEY_PREFIX:-perspective-check}"
+          backend_key="${key_prefix}/${target_env}/terraform.tfstate"
+
+          echo "target_env=${target_env}" >> "${GITHUB_OUTPUT}"
+          echo "tfvars_file=env/${target_env}.tfvars.example" >> "${GITHUB_OUTPUT}"
+          echo "backend_key=${backend_key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate GitHub Actions config
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in AWS_REGION TF_STATE_BUCKET TF_LOCK_TABLE AWS_DEPLOY_ROLE_ARN; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required value: ${key}"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: latest
+
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run build
+
+      - name: Backend checks
+        working-directory: backend
+        run: go test ./...
+
+      - name: Infra checks
+        working-directory: infra
+        run: |
+          tofu fmt -check -recursive
+          tofu init -backend=false
+          tofu validate
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5.0.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-actions-opentofu
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Lambda package
+        run: make lambda-package
+
+      - name: Check remote state resources
+        id: backend_check
+        run: |
+          set -euo pipefail
+
+          bucket_exists=false
+          if aws s3api head-bucket --bucket "${TF_STATE_BUCKET}" 2>/dev/null; then
+            bucket_exists=true
+          fi
+
+          table_exists=false
+          if aws dynamodb describe-table --table-name "${TF_LOCK_TABLE}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+            table_exists=true
+          fi
+
+          echo "bucket_exists=${bucket_exists}" >> "${GITHUB_OUTPUT}"
+          echo "table_exists=${table_exists}" >> "${GITHUB_OUTPUT}"
+
+      - name: Bootstrap remote state resources
+        if: steps.backend_check.outputs.bucket_exists != 'true' || steps.backend_check.outputs.table_exists != 'true'
+        working-directory: infra/bootstrap
+        env:
+          CREATE_STATE_BUCKET: ${{ steps.backend_check.outputs.bucket_exists != 'true' }}
+          CREATE_LOCK_TABLE: ${{ steps.backend_check.outputs.table_exists != 'true' }}
+        run: |
+          set -euo pipefail
+          tofu init -backend=false
+          tofu apply -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="state_bucket_name=${TF_STATE_BUCKET}" \
+            -var="lock_table_name=${TF_LOCK_TABLE}" \
+            -var="create_state_bucket=${CREATE_STATE_BUCKET}" \
+            -var="create_lock_table=${CREATE_LOCK_TABLE}" \
+            -var="environment=${{ steps.meta.outputs.target_env }}"
+
+      - name: Generate backend config
+        run: |
+          set -euo pipefail
+          cat <<EOF > infra/backend/ci.s3.tfbackend
+          bucket         = "${TF_STATE_BUCKET}"
+          key            = "${{ steps.meta.outputs.backend_key }}"
+          region         = "${AWS_REGION}"
+          encrypt        = true
+          dynamodb_table = "${TF_LOCK_TABLE}"
+          EOF
+
+      - name: Init OpenTofu backend
+        working-directory: infra
+        run: tofu init -reconfigure -backend-config=backend/ci.s3.tfbackend
+
+      - name: Plan
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          extra_args=("-var=aws_region=${AWS_REGION}")
+          if [ -n "${AMPLIFY_GITHUB_TOKEN:-}" ]; then
+            extra_args+=("-var=github_access_token=${AMPLIFY_GITHUB_TOKEN}")
+          fi
+          tofu plan -input=false -var-file=${{ steps.meta.outputs.tfvars_file }} "${extra_args[@]}" -out=tfplan
+
+      - name: Apply
+        working-directory: infra
+        run: tofu apply -input=false -auto-approve tfplan
+
+      - name: Capture outputs
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          api_endpoint="$(tofu output -raw api_endpoint 2>/dev/null || true)"
+          amplify_branch_url="$(tofu output -raw amplify_branch_url 2>/dev/null || true)"
+
+          {
+            echo "### Deployment outputs"
+            echo ""
+            echo "- Environment: ${{ steps.meta.outputs.target_env }}"
+            echo "- API endpoint: ${api_endpoint:-<not set>}"
+            echo "- Amplify branch URL: ${amplify_branch_url:-<not set>}"
+          } >> "${GITHUB_STEP_SUMMARY}"

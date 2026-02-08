@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/example/webdev-template/backend/internal/server"
+	"github.com/SamAl-Bayati/perspective-check/backend/internal/server"
 )
 
 func main() {

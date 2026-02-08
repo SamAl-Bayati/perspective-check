@@ -145,5 +145,6 @@ infra/env/*.tfvars
 infra/backend/*.tfbackend
 !infra/backend/*.tfbackend.example
 infra/.terraform/
+**/.terraform/
 *.tfstate
 *.tfstate.*

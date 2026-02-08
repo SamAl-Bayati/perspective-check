@@ -1,7 +1,7 @@
 variable "project_name" {
   description = "Project name prefix"
   type        = string
-  default     = "webdev-template"
+  default     = "perspective-check"
 }
 
 variable "environment" {
@@ -56,7 +56,7 @@ variable "frontend_api_base_url" {
 variable "lambda_function_name" {
   description = "Lambda function name"
   type        = string
-  default     = "webdev-template-api"
+  default     = "perspective-check-api"
 }
 
 variable "lambda_handler" {

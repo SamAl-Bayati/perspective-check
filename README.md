@@ -1,21 +1,23 @@
-# Modern Webdev Template
+# PerspectiveCheck
 
-Reusable, performance-focused web template with a minimal frontend, a lightweight Go API, and AWS deployment scaffolding.
+Web app foundation for PerspectiveCheck, with a minimal frontend, a lightweight Go API, and AWS deployment scaffolding.
 
 ## Why this stack
 - Vite + React + TypeScript keeps frontend iteration fast with low build overhead
 - Tailwind v4 keeps CSS payloads lean with utility-first styling
 - Go + Gin provides a fast, small-footprint API baseline
 - OpenTofu modules target AWS Amplify and Lambda + API Gateway for serverless deployment
-- GitHub Actions runs quality checks on every push and pull request
+- GitHub Actions runs CI checks plus branch-based CD for `dev` and `prod`
 
 ## Repository layout
 - `frontend/` React + TypeScript + Vite + Tailwind placeholder UI
 - `backend/` Go + Gin API scaffold with `/health`
 - `infra/` OpenTofu AWS scaffolding for Amplify and Lambda + API Gateway
+- `infra/bootstrap/` OpenTofu bootstrap stack for remote state bucket and lock table
 - `infra/backend/` environment-specific remote state backend config examples
 - `docs/` requirements, decisions, and developer setup notes
 - `.github/workflows/ci.yml` CI checks for frontend, backend, and infra
+- `.github/workflows/deploy.yml` CD pipeline for `dev` and `prod`
 
 ## Local development
 ### Run backend
@@ -52,81 +54,42 @@ tofu init -backend=false
 tofu validate
 ```
 
-## Instant AWS deploy path
+## Automated AWS deploy path
+Pushes to `dev` and `prod` trigger `.github/workflows/deploy.yml`.
 
-### 1) Bootstrap remote state backend once
-Create an S3 bucket and DynamoDB lock table for OpenTofu state.
+The workflow:
+- runs frontend, backend, and infra checks
+- builds Lambda artifact
+- bootstraps remote state resources with `infra/bootstrap` when missing
+- runs OpenTofu plan and apply for the target environment
+- prints `api_endpoint` and `amplify_branch_url` in the job summary
 
+### One-time GitHub setup
+Create GitHub Environments named `dev` and `prod`, then set:
+- Variable `AWS_REGION`
+- Variable `TF_STATE_BUCKET`
+- Variable `TF_LOCK_TABLE`
+- Optional variable `TF_STATE_KEY_PREFIX` (defaults to `perspective-check`)
+- Secret `AWS_DEPLOY_ROLE_ARN`
+- Optional secret `AMPLIFY_GITHUB_TOKEN` for private repos
+
+### Optional local fallback deploy
+You can still run deployment manually from your workstation:
 ```bash
-aws s3api create-bucket \
-  --bucket YOUR_TOFU_STATE_BUCKET \
-  --region us-east-1
+cd infra/bootstrap
+tofu init -backend=false
+tofu apply \
+  -var="aws_region=us-east-1" \
+  -var="state_bucket_name=YOUR_TOFU_STATE_BUCKET" \
+  -var="lock_table_name=YOUR_TOFU_LOCK_TABLE"
 
-aws s3api put-bucket-versioning \
-  --bucket YOUR_TOFU_STATE_BUCKET \
-  --versioning-configuration Status=Enabled
-
-aws dynamodb create-table \
-  --table-name YOUR_TOFU_LOCK_TABLE \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
-```
-
-For Lambda packaging, make sure `python3` is available for creating the zip artifact.
-
-### 2) Configure environment files
-```bash
-cd infra
-cp backend/dev.s3.tfbackend.example backend/dev.s3.tfbackend
-cp env/dev.tfvars.example env/dev.tfvars
-```
-
-In `infra/backend/dev.s3.tfbackend`, set:
-- `bucket`
-- `dynamodb_table`
-- `region`
-
-In `infra/env/dev.tfvars`, keep both enabled for full deploy:
-- `deploy_lambda_api = true`
-- `deploy_amplify = true`
-
-### 3) Build Lambda artifact
-```bash
-cd backend
-mkdir -p build
-GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -o build/bootstrap ./cmd/lambda
-cd build
-python3 -m zipfile -c lambda.zip bootstrap
-```
-
-### 4) Initialize OpenTofu with remote state for `dev`
-```bash
+cd ../..
+make lambda-package
 cd infra
 tofu init -reconfigure -backend-config=backend/dev.s3.tfbackend
-```
-
-### 5) Deploy backend and frontend resources
-```bash
-cd infra
 tofu plan -var-file=env/dev.tfvars
 tofu apply -var-file=env/dev.tfvars
 ```
-
-### 6) Confirm backend endpoint
-When both `deploy_lambda_api` and `deploy_amplify` are `true`, `VITE_API_BASE_URL` is wired into Amplify automatically from the Lambda API output.
-
-After apply:
-```bash
-cd infra
-tofu output api_endpoint
-```
-
-If you deploy Amplify separately from Lambda, set:
-- `frontend_api_base_url` in `env/dev.tfvars`
-
-When Amplify rebuilds, the frontend health panel shows `Connected to backend successfully`.
 
 ## Observability defaults included
 - Lambda tracing enabled with X-Ray (`tracing_config.mode = Active`)
@@ -163,26 +126,23 @@ tofu apply -var-file=env/prod.tfvars
 ```
 
 ## GitHub configuration checklist
-This template ships with CI only and does not deploy automatically.
+Required for `.github/workflows/ci.yml`:
+- none
 
-Required secrets and variables for `.github/workflows/ci.yml`:
-- None
+Required for `.github/workflows/deploy.yml` in each environment (`dev`, `prod`):
+- Variable `AWS_REGION`
+- Variable `TF_STATE_BUCKET`
+- Variable `TF_LOCK_TABLE`
+- Secret `AWS_DEPLOY_ROLE_ARN`
 
-Optional secrets and variables for future CD:
-- `AWS_ROLE_TO_ASSUME` (optional)
-  - Source: IAM role ARN with GitHub OIDC trust policy
-  - Used by: `aws-actions/configure-aws-credentials` in a deploy workflow
-- `AWS_REGION` (optional variable)
-  - Source: target AWS region, for example `us-east-1`
-  - Used by: deploy workflow AWS CLI/OpenTofu steps
-- `GH_PAT_FOR_AMPLIFY` (optional)
-  - Source: GitHub PAT for private repo integration in Amplify
-  - Used by: OpenTofu variable `github_access_token`
+Optional for `.github/workflows/deploy.yml`:
+- Variable `TF_STATE_KEY_PREFIX`
+- Secret `AMPLIFY_GITHUB_TOKEN`
 
 ## What is intentionally not implemented
 - No product features beyond placeholder UI and health endpoint
 - No persistent storage, auth, or business logic
-- No automatic production CD pipeline
+- No environment promotion gates or approval workflow between `dev` and `prod`
 
 ## Next implementation steps
 1. Add real feature routes and service layer in `backend/internal`

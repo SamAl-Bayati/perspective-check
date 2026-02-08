@@ -1,15 +1,15 @@
-project_name      = "webdev-template"
+project_name      = "perspective-check"
 environment       = "prod"
 aws_region        = "us-east-1"
 deploy_amplify    = true
 deploy_lambda_api = true
 
-github_repository   = "https://github.com/your-org/your-repo"
+github_repository   = "https://github.com/SamAl-Bayati/perspective-check"
 github_access_token = ""
 amplify_branch      = "main"
 frontend_api_base_url = ""
 
-lambda_function_name = "webdev-template-api-prod"
+lambda_function_name = "perspective-check-api-prod"
 lambda_handler       = "bootstrap"
 lambda_runtime       = "provided.al2023"
 lambda_zip_path      = "../backend/build/lambda.zip"

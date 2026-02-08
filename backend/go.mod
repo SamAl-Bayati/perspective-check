@@ -1,4 +1,4 @@
-module github.com/example/webdev-template/backend
+module github.com/SamAl-Bayati/perspective-check/backend
 
 go 1.22
 
