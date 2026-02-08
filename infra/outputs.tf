@@ -4,8 +4,13 @@ output "amplify_app_id" {
 }
 
 output "amplify_branch_url" {
-  description = "Amplify branch URL"
-  value       = var.deploy_amplify ? module.amplify[0].branch_url : null
+  description = "Amplify primary branch URL"
+  value       = var.deploy_amplify ? module.amplify[0].primary_branch_url : null
+}
+
+output "amplify_branch_urls" {
+  description = "Amplify branch URLs"
+  value       = var.deploy_amplify ? module.amplify[0].branch_urls : {}
 }
 
 output "lambda_function_name" {

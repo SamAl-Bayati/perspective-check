@@ -236,6 +236,7 @@ jobs:
           set -euo pipefail
           api_endpoint="$(tofu output -raw api_endpoint 2>/dev/null || true)"
           amplify_branch_url="$(tofu output -raw amplify_branch_url 2>/dev/null || true)"
+          amplify_branch_urls="$(tofu output -json amplify_branch_urls 2>/dev/null || true)"
 
           {
             echo "### Deployment outputs"
@@ -243,4 +244,5 @@ jobs:
             echo "- Environment: ${{ steps.meta.outputs.target_env }}"
             echo "- API endpoint: ${api_endpoint:-<not set>}"
             echo "- Amplify branch URL: ${amplify_branch_url:-<not set>}"
+            echo "- Amplify branch URLs: ${amplify_branch_urls:-<not set>}"
           } >> "${GITHUB_STEP_SUMMARY}"

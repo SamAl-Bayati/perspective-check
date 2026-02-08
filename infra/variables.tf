@@ -41,10 +41,28 @@ variable "github_access_token" {
   sensitive   = true
 }
 
-variable "amplify_branch" {
-  description = "Default branch to connect in Amplify"
+variable "amplify_app_name" {
+  description = "Amplify app name. If empty, project_name is used."
   type        = string
-  default     = "main"
+  default     = ""
+}
+
+variable "amplify_primary_branch_name" {
+  description = "Primary branch managed by this stack for Amplify."
+  type        = string
+  default     = ""
+}
+
+variable "amplify_additional_branch_api_base_urls" {
+  description = "Additional Amplify branches and their API base URLs."
+  type        = map(string)
+  default     = {}
+}
+
+variable "amplify_production_branch_names" {
+  description = "Amplify branch names that should be marked as PRODUCTION stage."
+  type        = set(string)
+  default     = ["prod", "main"]
 }
 
 variable "frontend_api_base_url" {

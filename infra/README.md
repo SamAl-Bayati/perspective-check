@@ -5,6 +5,10 @@ This folder contains AWS infrastructure scaffolding for:
 - Lambda + API Gateway (backend)
 - Remote state backend split by environment
 
+Amplify ownership model:
+- `prod` state manages a single shared Amplify app and both `prod` and `dev` branches
+- `dev` state manages backend infrastructure only
+
 ## Prerequisites
 - OpenTofu 1.6+
 - AWS credentials configured in your shell
@@ -49,6 +53,12 @@ Workflow behavior:
 - Initializes backend state key for target environment
 - Runs `tofu plan` and `tofu apply` with `env/dev.tfvars.example` or `env/prod.tfvars.example`
 - Publishes `api_endpoint` and `amplify_branch_url` in the workflow summary
+
+Branch mapping:
+- `prod` deploys the shared Amplify app named `perspective-check`
+- `prod` creates/updates Amplify branches `prod` and `dev`
+- `prod` branch API URL is taken from the `prod` Lambda API output
+- `dev` branch API URL is provided in `amplify_additional_branch_api_base_urls` in `env/prod.tfvars.example`
 
 Configure these GitHub variables and secrets in each GitHub Environment (`dev`, `prod`):
 - Variable `AWS_REGION` for target region, for example `us-east-1`

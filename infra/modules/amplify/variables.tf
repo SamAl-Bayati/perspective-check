@@ -2,8 +2,9 @@ variable "project_name" {
   type = string
 }
 
-variable "environment" {
-  type = string
+variable "app_name" {
+  type    = string
+  default = ""
 }
 
 variable "repository" {
@@ -17,14 +18,17 @@ variable "github_access_token" {
   sensitive = true
 }
 
-variable "branch" {
-  type    = string
-  default = "main"
+variable "primary_branch_name" {
+  type = string
 }
 
-variable "api_base_url" {
-  type    = string
-  default = ""
+variable "branch_api_base_urls" {
+  type = map(string)
+}
+
+variable "production_branch_names" {
+  type    = set(string)
+  default = ["prod", "main"]
 }
 
 variable "tags" {

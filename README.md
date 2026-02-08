@@ -64,6 +64,10 @@ The workflow:
 - runs OpenTofu plan and apply for the target environment
 - prints `api_endpoint` and `amplify_branch_url` in the job summary
 
+Amplify is managed as a single shared app (`perspective-check`) with `dev` and `prod` branches.
+- `prod` infra state manages the shared Amplify app and both Amplify branches
+- `dev` infra state manages backend resources only
+
 ### One-time GitHub setup
 Create GitHub Environments named `dev` and `prod`, then set:
 - Variable `AWS_REGION`

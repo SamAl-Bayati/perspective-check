@@ -1,12 +1,15 @@
 project_name      = "perspective-check"
 environment       = "dev"
 aws_region        = "us-east-1"
-deploy_amplify    = true
+deploy_amplify    = false
 deploy_lambda_api = true
 
 github_repository   = "https://github.com/SamAl-Bayati/perspective-check"
 github_access_token = ""
-amplify_branch      = "dev"
+amplify_app_name    = "perspective-check"
+amplify_primary_branch_name = "dev"
+amplify_additional_branch_api_base_urls = {}
+amplify_production_branch_names = ["prod"]
 frontend_api_base_url = ""
 
 lambda_function_name = "perspective-check-api-dev"

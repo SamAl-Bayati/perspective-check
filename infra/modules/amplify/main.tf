@@ -1,5 +1,5 @@
 resource "aws_amplify_app" "this" {
-  name       = "${var.project_name}-${var.environment}"
+  name       = var.app_name != "" ? var.app_name : var.project_name
   platform   = "WEB"
   repository = var.repository != "" ? var.repository : null
 
@@ -26,10 +26,7 @@ resource "aws_amplify_app" "this" {
               - node_modules/**/*
   YAML
 
-  environment_variables = var.api_base_url != "" ? {
-    AMPLIFY_MONOREPO_APP_ROOT = "frontend"
-    VITE_API_BASE_URL         = var.api_base_url
-    } : {
+  environment_variables = {
     AMPLIFY_MONOREPO_APP_ROOT = "frontend"
   }
 
@@ -37,9 +34,15 @@ resource "aws_amplify_app" "this" {
 }
 
 resource "aws_amplify_branch" "this" {
-  app_id            = aws_amplify_app.this.id
-  branch_name       = var.branch
-  framework         = "React"
-  stage             = "PRODUCTION"
-  enable_auto_build = true
+  for_each = var.branch_api_base_urls
+
+  app_id                      = aws_amplify_app.this.id
+  branch_name                 = each.key
+  framework                   = "React"
+  stage                       = contains(var.production_branch_names, each.key) ? "PRODUCTION" : "DEVELOPMENT"
+  enable_auto_build           = true
+  enable_pull_request_preview = false
+  environment_variables = each.value != "" ? {
+    VITE_API_BASE_URL = each.value
+  } : {}
 }

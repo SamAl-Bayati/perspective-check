@@ -4,19 +4,29 @@ locals {
     Environment = var.environment
     ManagedBy   = "opentofu"
   }
+
+  amplify_primary_branch_name  = var.amplify_primary_branch_name != "" ? var.amplify_primary_branch_name : var.environment
+  amplify_primary_api_base_url = var.deploy_lambda_api ? module.lambda_api[0].api_endpoint : var.frontend_api_base_url
+  amplify_branch_api_base_urls = merge(
+    var.amplify_additional_branch_api_base_urls,
+    {
+      (local.amplify_primary_branch_name) = local.amplify_primary_api_base_url
+    }
+  )
 }
 
 module "amplify" {
   source = "./modules/amplify"
   count  = var.deploy_amplify ? 1 : 0
 
-  project_name        = var.project_name
-  environment         = var.environment
-  repository          = var.github_repository
-  github_access_token = var.github_access_token
-  branch              = var.amplify_branch
-  api_base_url        = var.deploy_lambda_api ? module.lambda_api[0].api_endpoint : var.frontend_api_base_url
-  tags                = local.tags
+  project_name            = var.project_name
+  app_name                = var.amplify_app_name
+  repository              = var.github_repository
+  github_access_token     = var.github_access_token
+  primary_branch_name     = local.amplify_primary_branch_name
+  branch_api_base_urls    = local.amplify_branch_api_base_urls
+  production_branch_names = var.amplify_production_branch_names
+  tags                    = local.tags
 }
 
 module "lambda_api" {
