@@ -1,11 +1,11 @@
 <p align="center">
-  <a href="https://PerspectiveCheck.samalbayati.com">
+  <a href="https://perspectivecheck.samalbayati.com">
     <img src="frontend/src/assets/logo.png" alt="PerspectiveCheck" width="280" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://PerspectiveCheck.samalbayati.com">Under Development</a>
+  <a href="https://perspectivecheck.samalbayati.com">Under Development</a>
 </p>
 
 # PerspectiveCheck
@@ -22,9 +22,3 @@ Target 3D file support:
 - STL
 - 3MF
 - FBX
-
-Live demo:
-- Website: `https://your-demo-url.example`
-- Demo image: `https://your-demo-image-url.example/perspective-check-demo.png`
-
-Replace the two URLs above with your hosted demo URL and screenshot URL.
