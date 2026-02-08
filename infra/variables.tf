@@ -100,6 +100,24 @@ variable "api_access_log_retention_days" {
   default     = 14
 }
 
+variable "api_throttling_burst_limit" {
+  description = "API Gateway default route throttling burst limit"
+  type        = number
+  default     = 100
+}
+
+variable "api_throttling_rate_limit" {
+  description = "API Gateway default route throttling steady-state rate limit (requests per second)"
+  type        = number
+  default     = 50
+}
+
+variable "lambda_reserved_concurrent_executions" {
+  description = "Reserved concurrency for Lambda. Use -1 for unreserved concurrency."
+  type        = number
+  default     = -1
+}
+
 variable "enable_lambda_tracing" {
   description = "Enable active X-Ray tracing for Lambda"
   type        = bool

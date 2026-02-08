@@ -34,13 +34,14 @@ resource "aws_cloudwatch_log_group" "lambda" {
 }
 
 resource "aws_lambda_function" "this" {
-  function_name = var.function_name
-  role          = aws_iam_role.lambda_exec.arn
-  handler       = var.handler
-  runtime       = var.runtime
-  architectures = [var.architecture]
-  filename      = var.zip_path
-  publish       = true
+  function_name                  = var.function_name
+  role                           = aws_iam_role.lambda_exec.arn
+  handler                        = var.handler
+  runtime                        = var.runtime
+  architectures                  = [var.architecture]
+  filename                       = var.zip_path
+  publish                        = true
+  reserved_concurrent_executions = var.lambda_reserved_concurrent_executions
 
   tracing_config {
     mode = var.enable_lambda_tracing ? "Active" : "PassThrough"
@@ -100,6 +101,8 @@ resource "aws_apigatewayv2_stage" "default" {
 
   default_route_settings {
     detailed_metrics_enabled = true
+    throttling_burst_limit   = var.api_throttling_burst_limit
+    throttling_rate_limit    = var.api_throttling_rate_limit
   }
 
   tags = var.tags

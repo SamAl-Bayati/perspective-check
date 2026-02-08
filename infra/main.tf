@@ -23,17 +23,20 @@ module "lambda_api" {
   source = "./modules/lambda_api"
   count  = var.deploy_lambda_api ? 1 : 0
 
-  function_name            = var.lambda_function_name
-  handler                  = var.lambda_handler
-  runtime                  = var.lambda_runtime
-  architecture             = var.lambda_architecture
-  zip_path                 = var.lambda_zip_path
-  environment              = var.environment
-  lambda_log_retention     = var.lambda_log_retention_days
-  api_access_log_retention = var.api_access_log_retention_days
-  enable_lambda_tracing    = var.enable_lambda_tracing
-  api_cors_allow_origins   = var.api_cors_allow_origins
-  api_cors_allow_methods   = var.api_cors_allow_methods
-  api_cors_allow_headers   = var.api_cors_allow_headers
-  tags                     = local.tags
+  function_name                         = var.lambda_function_name
+  handler                               = var.lambda_handler
+  runtime                               = var.lambda_runtime
+  architecture                          = var.lambda_architecture
+  zip_path                              = var.lambda_zip_path
+  environment                           = var.environment
+  lambda_log_retention                  = var.lambda_log_retention_days
+  api_access_log_retention              = var.api_access_log_retention_days
+  api_throttling_burst_limit            = var.api_throttling_burst_limit
+  api_throttling_rate_limit             = var.api_throttling_rate_limit
+  lambda_reserved_concurrent_executions = var.lambda_reserved_concurrent_executions
+  enable_lambda_tracing                 = var.enable_lambda_tracing
+  api_cors_allow_origins                = var.api_cors_allow_origins
+  api_cors_allow_methods                = var.api_cors_allow_methods
+  api_cors_allow_headers                = var.api_cors_allow_headers
+  tags                                  = local.tags
 }

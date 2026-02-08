@@ -40,6 +40,21 @@ variable "api_access_log_retention" {
   default = 14
 }
 
+variable "api_throttling_burst_limit" {
+  type    = number
+  default = 100
+}
+
+variable "api_throttling_rate_limit" {
+  type    = number
+  default = 50
+}
+
+variable "lambda_reserved_concurrent_executions" {
+  type    = number
+  default = -1
+}
+
 variable "enable_lambda_tracing" {
   type    = bool
   default = true
