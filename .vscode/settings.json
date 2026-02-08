@@ -1,9 +1,0 @@
-{
-  "editor.formatOnSave": true,
-  "files.trimTrailingWhitespace": true,
-  "files.insertFinalNewline": true,
-  "eslint.workingDirectories": [
-    "frontend"
-  ],
-  "go.useLanguageServer": true
-}

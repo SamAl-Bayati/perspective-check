@@ -148,3 +148,4 @@ infra/.terraform/
 **/.terraform/
 *.tfstate
 *.tfstate.*
+.vscode/
