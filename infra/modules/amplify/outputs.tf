@@ -3,12 +3,17 @@ output "app_id" {
 }
 
 output "primary_branch_url" {
-  value = try("https://${aws_amplify_branch.this[var.primary_branch_name].branch_name}.${aws_amplify_app.this.default_domain}", null)
+  value = "https://${aws_amplify_branch.this.branch_name}.${aws_amplify_app.this.default_domain}"
 }
 
 output "branch_urls" {
-  value = {
-    for branch_name, branch in aws_amplify_branch.this :
-    branch_name => "https://${branch.branch_name}.${aws_amplify_app.this.default_domain}"
-  }
+  value = merge(
+    {
+      (aws_amplify_branch.this.branch_name) = "https://${aws_amplify_branch.this.branch_name}.${aws_amplify_app.this.default_domain}"
+    },
+    {
+      for branch_name, branch in aws_amplify_branch.additional :
+      branch_name => "https://${branch.branch_name}.${aws_amplify_app.this.default_domain}"
+    }
+  )
 }
