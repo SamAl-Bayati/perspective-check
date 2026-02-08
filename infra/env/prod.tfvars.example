@@ -8,10 +8,10 @@ github_repository   = "https://github.com/SamAl-Bayati/perspective-check"
 github_access_token = ""
 amplify_app_name    = "perspective-check"
 amplify_primary_branch_name = "prod"
-amplify_additional_branch_api_base_urls = {
-  # Update if the dev API endpoint changes
-  dev = "https://loolz2hk7g.execute-api.us-east-1.amazonaws.com"
-}
+# In CI, this is injected automatically from dev state.
+# For manual local apply, set this explicitly, for example:
+# amplify_additional_branch_api_base_urls = { dev = "https://<dev-api-id>.execute-api.us-east-1.amazonaws.com" }
+amplify_additional_branch_api_base_urls = {}
 amplify_production_branch_names = ["prod"]
 frontend_api_base_url = ""
 

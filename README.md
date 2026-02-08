@@ -67,6 +67,7 @@ The workflow:
 Amplify is managed as a single shared app (`perspective-check`) with `dev` and `prod` branches.
 - `prod` infra state manages the shared Amplify app and both Amplify branches
 - `dev` infra state manages backend resources only
+- in CI, `prod` deploy reads the `dev` API endpoint from `dev` state to wire the Amplify `dev` branch automatically
 
 ### One-time GitHub setup
 Create GitHub Environments named `dev` and `prod`, then set:

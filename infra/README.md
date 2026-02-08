@@ -58,7 +58,8 @@ Branch mapping:
 - `prod` deploys the shared Amplify app named `perspective-check`
 - `prod` creates/updates Amplify branches `prod` and `dev`
 - `prod` branch API URL is taken from the `prod` Lambda API output
-- `dev` branch API URL is provided in `amplify_additional_branch_api_base_urls` in `env/prod.tfvars.example`
+- in CI, the `dev` branch API URL is loaded automatically from `dev` remote state output `api_endpoint`
+- for manual local `prod` applies, set `amplify_additional_branch_api_base_urls` in `env/prod.tfvars`
 
 Configure these GitHub variables and secrets in each GitHub Environment (`dev`, `prod`):
 - Variable `AWS_REGION` for target region, for example `us-east-1`
