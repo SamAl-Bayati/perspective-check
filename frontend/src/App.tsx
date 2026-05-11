@@ -27,6 +27,11 @@ import {
   persistCanvasNavigationPreferences
 } from '@/lib/keybind-utils'
 import { loadProjectionModelFromFile } from '@/lib/model-pipelines/load-model-file'
+import {
+  clearLastProjectionModelFile,
+  getLastProjectionModelFile,
+  persistLastProjectionModelFile
+} from '@/lib/model-pipelines/persisted-model-file'
 import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
 
 function App() {
@@ -66,6 +71,12 @@ function App() {
       setProjectionModel(nextModel)
       setSelectedFileName(file.name)
       setFileLoadError(null)
+
+      try {
+        await persistLastProjectionModelFile(file)
+      } catch {
+        return
+      }
     } catch (error) {
       setProjectionModel(null)
       setSelectedFileName(null)
@@ -80,6 +91,46 @@ function App() {
   useEffect(() => {
     applyResolvedTheme(resolvedTheme)
   }, [resolvedTheme])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const restoreLastLoadedFile = async () => {
+      try {
+        const file = await getLastProjectionModelFile()
+        if (!file || !isMounted) {
+          return
+        }
+
+        const nextModel = await loadProjectionModelFromFile(file)
+        if (!isMounted) {
+          return
+        }
+
+        setProjectionModel(nextModel)
+        setSelectedFileName(file.name)
+        setFileLoadError(null)
+      } catch {
+        try {
+          await clearLastProjectionModelFile()
+        } catch {
+          return
+        }
+
+        if (isMounted) {
+          setProjectionModel(null)
+          setSelectedFileName(null)
+          setFileLoadError('Last saved file could not be loaded. Add the OBJ file again.')
+        }
+      }
+    }
+
+    void restoreLastLoadedFile()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   return (
     <TooltipProvider>
