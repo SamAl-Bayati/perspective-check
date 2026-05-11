@@ -125,4 +125,4 @@ export const RESERVED_TRANSFORM_SHORTCUTS = [
   { input: 'F / A', behavior: 'Reserved for frame selected and frame all (no-op)' }
 ] as const
 
-export const ACCEPTED_3D_FILE_EXTENSIONS = '.obj'
+export const ACCEPTED_3D_FILE_EXTENSIONS = '.obj,.stl'

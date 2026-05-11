@@ -172,7 +172,7 @@ function App() {
 
         {selectedFileName ? (
           <div className={APP_SHELL_CLASSES.loadedFileBadge} role="status" aria-live="polite">
-            Loaded OBJ: {selectedFileName}
+            Loaded file: {selectedFileName}
             {projectionModel ? (
               <span className="ml-2">
                 {projectionModel.vertices.length} vertices, {projectionModel.edges.length} edges

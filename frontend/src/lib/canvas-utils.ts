@@ -5,7 +5,6 @@ import {
 } from '@/constants/canvas-navigation'
 
 export type Point = { x: number, y: number }
-export type Bounds = { minX: number, maxX: number, minY: number, maxY: number }
 export type DragMode = 'none' | 'boxSelect' | 'orbit' | 'pan' | 'dollyZoom'
 
 export const clamp = (value: number, min: number, max: number) =>
@@ -19,69 +18,10 @@ export const clampRange = (value: number, min: number, max: number) => {
   return (min + max) / 2
 }
 
-export const getPointBounds = (points: Point[]): Bounds =>
-  points.reduce(
-    (bounds, point) => ({
-      minX: Math.min(bounds.minX, point.x),
-      maxX: Math.max(bounds.maxX, point.x),
-      minY: Math.min(bounds.minY, point.y),
-      maxY: Math.max(bounds.maxY, point.y)
-    }),
-    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
-  )
-
 export const getLocalPointFromRect = (rect: DOMRect, clientX: number, clientY: number): Point => ({
   x: clientX - rect.left,
   y: clientY - rect.top
 })
-
-export const projectVertices = (
-  vertices: [number, number, number][],
-  yawAngle: number,
-  pitchAngle: number,
-  cameraDistance: number
-) => {
-  const cosY = Math.cos(yawAngle)
-  const sinY = Math.sin(yawAngle)
-  const cosX = Math.cos(pitchAngle)
-  const sinX = Math.sin(pitchAngle)
-
-  return vertices.map(([x, y, z]) => {
-    const rotatedX = x * cosY - z * sinY
-    const rotatedZ = x * sinY + z * cosY
-    const tiltedY = y * cosX - rotatedZ * sinX
-    const tiltedZ = y * sinX + rotatedZ * cosX
-    const depth = tiltedZ + cameraDistance
-
-    return {
-      x: rotatedX / depth,
-      y: tiltedY / depth
-    }
-  })
-}
-
-export const mapProjectedPointsToViewport = (
-  projectedPoints: Point[],
-  viewportWidth: number,
-  viewportHeight: number,
-  viewportRatio: number,
-  scaleDistance: number
-) => {
-  const targetViewportSize = Math.min(viewportWidth, viewportHeight) * viewportRatio
-  const perspectiveScale = targetViewportSize * scaleDistance / 2
-  const centerX = viewportWidth / 2
-  const centerY = viewportHeight / 2
-
-  const screenPoints = projectedPoints.map((point) => ({
-    x: centerX + point.x * perspectiveScale,
-    y: centerY + point.y * perspectiveScale
-  }))
-
-  return {
-    screenPoints,
-    bounds: getPointBounds(screenPoints)
-  }
-}
 
 export const getDragModeForBehavior = (behavior: DragBehaviorId): DragMode => {
   if (behavior === 'boxSelect') {
