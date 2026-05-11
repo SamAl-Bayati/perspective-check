@@ -1,11 +1,16 @@
 import {
+  CANVAS_NAVIGATION_PRESET_OPTIONS,
+  CANVAS_NAVIGATION_PRESETS,
   CLICK_BEHAVIOR_OPTIONS,
   CLICK_INPUT_OPTIONS,
   DRAG_BEHAVIOR_OPTIONS,
   DRAG_INPUT_OPTIONS,
   type CanvasNavigationPreferences,
+  type CanvasNavigationPresetId,
   type ClickBehaviorId,
-  type DragBehaviorId
+  type ClickInputId,
+  type DragBehaviorId,
+  type DragInputId
 } from '@/constants/canvas-navigation'
 import {
   Select,
@@ -20,43 +25,166 @@ type KeybindPreferencesPanelProps = {
   onPreferencesChange: (nextPreferences: CanvasNavigationPreferences) => void
 }
 
+const UNASSIGNED_INPUT_VALUE = 'unassigned'
+const CUSTOM_PRESET_VALUE = 'custom'
+
+type ActionOption<TValue extends string> = {
+  value: TValue
+  label: string
+}
+
+type SelectInputValue<TInput extends string> = TInput | typeof UNASSIGNED_INPUT_VALUE
+
+const CLICK_ACTION_OPTIONS = CLICK_BEHAVIOR_OPTIONS.filter(
+  (option) => option.value !== 'none'
+) as ActionOption<Exclude<ClickBehaviorId, 'none'>>[]
+
+const DRAG_ACTION_OPTIONS = DRAG_BEHAVIOR_OPTIONS.filter(
+  (option) => option.value !== 'none'
+) as ActionOption<Exclude<DragBehaviorId, 'none'>>[]
+
+const getSelectedInputForBehavior = <TInput extends string, TBehavior extends string>(
+  bindings: Record<TInput, TBehavior>,
+  options: ActionOption<TInput>[],
+  behavior: TBehavior
+): SelectInputValue<TInput> =>
+  options.find((option) => bindings[option.value] === behavior)?.value ?? UNASSIGNED_INPUT_VALUE
+
+const getBindingsWithAssignedInput = <TInput extends string, TBehavior extends string>(
+  bindings: Record<TInput, TBehavior>,
+  options: ActionOption<TInput>[],
+  behavior: TBehavior,
+  input: SelectInputValue<TInput>,
+  emptyBehavior: TBehavior
+) => {
+  const nextBindings = options.reduce(
+    (updatedBindings, option) => ({
+      ...updatedBindings,
+      [option.value]:
+        updatedBindings[option.value] === behavior ? emptyBehavior : updatedBindings[option.value]
+    }),
+    { ...bindings }
+  )
+
+  if (input !== UNASSIGNED_INPUT_VALUE) {
+    nextBindings[input] = behavior
+  }
+
+  return nextBindings
+}
+
+const arePreferencesEqual = (
+  preferences: CanvasNavigationPreferences,
+  preset: CanvasNavigationPreferences
+) => {
+  const clickBindingsMatch = CLICK_INPUT_OPTIONS.every(
+    (option) => preferences.clickBindings[option.value] === preset.clickBindings[option.value]
+  )
+  const dragBindingsMatch = DRAG_INPUT_OPTIONS.every(
+    (option) => preferences.dragBindings[option.value] === preset.dragBindings[option.value]
+  )
+
+  return clickBindingsMatch && dragBindingsMatch
+}
+
+const getActivePresetValue = (preferences: CanvasNavigationPreferences) =>
+  CANVAS_NAVIGATION_PRESET_OPTIONS.find((option) =>
+    arePreferencesEqual(preferences, CANVAS_NAVIGATION_PRESETS[option.value])
+  )?.value ?? CUSTOM_PRESET_VALUE
+
 export function KeybindPreferencesPanel({
   preferences,
   onPreferencesChange
 }: KeybindPreferencesPanelProps) {
+  const updateClickBinding = (
+    behavior: Exclude<ClickBehaviorId, 'none'>,
+    input: SelectInputValue<ClickInputId>
+  ) => {
+    onPreferencesChange({
+      ...preferences,
+      clickBindings: getBindingsWithAssignedInput(
+        preferences.clickBindings,
+        CLICK_INPUT_OPTIONS,
+        behavior,
+        input,
+        'none'
+      )
+    })
+  }
+
+  const updateDragBinding = (
+    behavior: Exclude<DragBehaviorId, 'none'>,
+    input: SelectInputValue<DragInputId>
+  ) => {
+    onPreferencesChange({
+      ...preferences,
+      dragBindings: getBindingsWithAssignedInput(
+        preferences.dragBindings,
+        DRAG_INPUT_OPTIONS,
+        behavior,
+        input,
+        'none'
+      )
+    })
+  }
+
   return (
     <div className="space-y-5">
+      <section className="space-y-2">
+        <h3 className="text-sm font-semibold">Preset</h3>
+        <Select
+          value={getActivePresetValue(preferences)}
+          onValueChange={(value) => {
+            if (value === CUSTOM_PRESET_VALUE) {
+              return
+            }
+
+            onPreferencesChange(CANVAS_NAVIGATION_PRESETS[value as CanvasNavigationPresetId])
+          }}
+        >
+          <SelectTrigger className="w-full sm:max-w-[260px]" aria-label="Keybind preset">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={CUSTOM_PRESET_VALUE}>Custom</SelectItem>
+            {CANVAS_NAVIGATION_PRESET_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </section>
       <section>
-        <h3 className="text-sm font-semibold">Click Preferences</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Click inputs can only map to click behaviors
-        </p>
+        <h3 className="text-sm font-semibold">Click Actions</h3>
         <div className="mt-2 space-y-2">
-          {CLICK_INPUT_OPTIONS.map((inputOption) => (
+          {CLICK_ACTION_OPTIONS.map((behaviorOption) => (
             <div
-              key={inputOption.value}
+              key={behaviorOption.value}
               className="grid gap-2 rounded-md border p-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center"
             >
-              <div className="text-sm font-medium">{inputOption.label}</div>
+              <div className="text-sm font-medium">{behaviorOption.label}</div>
               <Select
-                value={preferences.clickBindings[inputOption.value]}
+                value={getSelectedInputForBehavior(
+                  preferences.clickBindings,
+                  CLICK_INPUT_OPTIONS,
+                  behaviorOption.value
+                )}
                 onValueChange={(value) =>
-                  onPreferencesChange({
-                    ...preferences,
-                    clickBindings: {
-                      ...preferences.clickBindings,
-                      [inputOption.value]: value as ClickBehaviorId
-                    }
-                  })
+                  updateClickBinding(
+                    behaviorOption.value,
+                    value as SelectInputValue<ClickInputId>
+                  )
                 }
               >
-                <SelectTrigger className="w-full" aria-label={`${inputOption.label} click behavior`}>
+                <SelectTrigger className="w-full" aria-label={`${behaviorOption.label} input`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CLICK_BEHAVIOR_OPTIONS.map((behaviorOption) => (
-                    <SelectItem key={behaviorOption.value} value={behaviorOption.value}>
-                      {behaviorOption.label}
+                  <SelectItem value={UNASSIGNED_INPUT_VALUE}>Not assigned</SelectItem>
+                  {CLICK_INPUT_OPTIONS.map((inputOption) => (
+                    <SelectItem key={inputOption.value} value={inputOption.value}>
+                      {inputOption.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -66,36 +194,35 @@ export function KeybindPreferencesPanel({
         </div>
       </section>
       <section>
-        <h3 className="text-sm font-semibold">Drag Preferences</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Drag inputs can only map to drag behaviors
-        </p>
+        <h3 className="text-sm font-semibold">Drag Actions</h3>
         <div className="mt-2 space-y-2">
-          {DRAG_INPUT_OPTIONS.map((inputOption) => (
+          {DRAG_ACTION_OPTIONS.map((behaviorOption) => (
             <div
-              key={inputOption.value}
+              key={behaviorOption.value}
               className="grid gap-2 rounded-md border p-3 sm:grid-cols-[180px_minmax(0,1fr)] sm:items-center"
             >
-              <div className="text-sm font-medium">{inputOption.label}</div>
+              <div className="text-sm font-medium">{behaviorOption.label}</div>
               <Select
-                value={preferences.dragBindings[inputOption.value]}
+                value={getSelectedInputForBehavior(
+                  preferences.dragBindings,
+                  DRAG_INPUT_OPTIONS,
+                  behaviorOption.value
+                )}
                 onValueChange={(value) =>
-                  onPreferencesChange({
-                    ...preferences,
-                    dragBindings: {
-                      ...preferences.dragBindings,
-                      [inputOption.value]: value as DragBehaviorId
-                    }
-                  })
+                  updateDragBinding(
+                    behaviorOption.value,
+                    value as SelectInputValue<DragInputId>
+                  )
                 }
               >
-                <SelectTrigger className="w-full" aria-label={`${inputOption.label} drag behavior`}>
+                <SelectTrigger className="w-full" aria-label={`${behaviorOption.label} input`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DRAG_BEHAVIOR_OPTIONS.map((behaviorOption) => (
-                    <SelectItem key={behaviorOption.value} value={behaviorOption.value}>
-                      {behaviorOption.label}
+                  <SelectItem value={UNASSIGNED_INPUT_VALUE}>Not assigned</SelectItem>
+                  {DRAG_INPUT_OPTIONS.map((inputOption) => (
+                    <SelectItem key={inputOption.value} value={inputOption.value}>
+                      {inputOption.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

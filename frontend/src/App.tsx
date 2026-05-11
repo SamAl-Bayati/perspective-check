@@ -7,7 +7,7 @@ import { KeybindHelpDialog } from '@/components/keybind-help-dialog'
 import { PerspectiveProjectionCanvas } from '@/components/perspective-projection-canvas'
 import {
   ACCEPTED_3D_FILE_EXTENSIONS,
-  DEFAULT_CANVAS_NAVIGATION_PREFERENCES
+  type CanvasNavigationPreferences
 } from '@/constants/canvas-navigation'
 import { APP_SHELL_CLASSES } from '@/constants/app-shell'
 import { type ThemePreference } from '@/constants/theme'
@@ -22,12 +22,25 @@ import {
   resolveTheme,
   subscribeToSystemTheme
 } from '@/lib/theme-utils'
+import {
+  getStoredCanvasNavigationPreferences,
+  persistCanvasNavigationPreferences
+} from '@/lib/keybind-utils'
+import { loadProjectionModelFromFile } from '@/lib/model-pipelines/load-model-file'
+import {
+  clearLastProjectionModelFile,
+  getLastProjectionModelFile,
+  persistLastProjectionModelFile
+} from '@/lib/model-pipelines/persisted-model-file'
+import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
-  const [navigationPreferences, setNavigationPreferences] = useState(
-    DEFAULT_CANVAS_NAVIGATION_PREFERENCES
+  const [fileLoadError, setFileLoadError] = useState<string | null>(null)
+  const [projectionModel, setProjectionModel] = useState<ProjectionModel | null>(null)
+  const [navigationPreferences, setNavigationPreferencesState] = useState(
+    getStoredCanvasNavigationPreferences
   )
   const [themePreferenceState, setThemePreferenceState] = useState<ThemePreference>(getStoredThemePreference)
   const systemTheme = useSyncExternalStore(
@@ -39,11 +52,36 @@ function App() {
     setThemePreferenceState(nextPreference)
     persistThemePreference(nextPreference)
   }
+  const setNavigationPreferences = (nextPreferences: CanvasNavigationPreferences) => {
+    setNavigationPreferencesState(nextPreferences)
+    persistCanvasNavigationPreferences(nextPreferences)
+  }
   const resolvedTheme = resolveTheme(themePreferenceState, systemTheme)
 
-  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    setSelectedFileName(file?.name ?? null)
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    try {
+      const nextModel = await loadProjectionModelFromFile(file)
+      setProjectionModel(nextModel)
+      setSelectedFileName(file.name)
+      setFileLoadError(null)
+
+      try {
+        await persistLastProjectionModelFile(file)
+      } catch {
+        return
+      }
+    } catch (error) {
+      setProjectionModel(null)
+      setSelectedFileName(null)
+      setFileLoadError(error instanceof Error ? error.message : 'Unable to load this 3D file')
+    }
   }
 
   const handleThemeToggle = () => {
@@ -54,12 +92,53 @@ function App() {
     applyResolvedTheme(resolvedTheme)
   }, [resolvedTheme])
 
+  useEffect(() => {
+    let isMounted = true
+
+    const restoreLastLoadedFile = async () => {
+      try {
+        const file = await getLastProjectionModelFile()
+        if (!file || !isMounted) {
+          return
+        }
+
+        const nextModel = await loadProjectionModelFromFile(file)
+        if (!isMounted) {
+          return
+        }
+
+        setProjectionModel(nextModel)
+        setSelectedFileName(file.name)
+        setFileLoadError(null)
+      } catch {
+        try {
+          await clearLastProjectionModelFile()
+        } catch {
+          return
+        }
+
+        if (isMounted) {
+          setProjectionModel(null)
+          setSelectedFileName(null)
+          setFileLoadError('Last saved file could not be loaded. Add the OBJ file again.')
+        }
+      }
+    }
+
+    void restoreLastLoadedFile()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   return (
     <TooltipProvider>
       <main className={APP_SHELL_CLASSES.mainViewport}>
         <PerspectiveProjectionCanvas
           className={APP_SHELL_CLASSES.canvas}
           navigationPreferences={navigationPreferences}
+          projectionModel={projectionModel}
           resolvedTheme={resolvedTheme}
         />
 
@@ -93,7 +172,21 @@ function App() {
 
         {selectedFileName ? (
           <div className={APP_SHELL_CLASSES.loadedFileBadge} role="status" aria-live="polite">
-            Loaded file: {selectedFileName}
+            Loaded OBJ: {selectedFileName}
+            {projectionModel ? (
+              <span className="ml-2">
+                {projectionModel.vertices.length} vertices, {projectionModel.edges.length} edges
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {fileLoadError ? (
+          <div
+            className={`${APP_SHELL_CLASSES.loadedFileBadge} border-destructive/50 text-destructive`}
+            role="alert"
+          >
+            {fileLoadError}
           </div>
         ) : null}
 

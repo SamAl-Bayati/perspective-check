@@ -1,5 +1,5 @@
 import * as TabsPrimitive from '@radix-ui/react-tabs'
-import { type ComponentProps } from 'react'
+import { forwardRef, type ComponentProps, type ComponentRef } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -32,12 +32,12 @@ function TabsList({
   )
 }
 
-function TabsTrigger({
-  className,
-  ...props
-}: ComponentProps<typeof TabsPrimitive.Trigger>) {
-  return (
+const TabsTrigger = forwardRef<
+  ComponentRef<typeof TabsPrimitive.Trigger>,
+  ComponentProps<typeof TabsPrimitive.Trigger>
+>(({ className, ...props }, ref) => (
     <TabsPrimitive.Trigger
+      ref={ref}
       data-slot="tabs-trigger"
       className={cn(
         'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-[3px] inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center rounded-md px-2 py-1 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color,box-shadow] hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50 aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm aria-selected:ring-1 aria-selected:ring-border',
@@ -45,8 +45,9 @@ function TabsTrigger({
       )}
       {...props}
     />
-  )
-}
+))
+
+TabsTrigger.displayName = 'TabsTrigger'
 
 function TabsContent({
   className,

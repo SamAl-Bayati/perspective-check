@@ -1,3 +1,5 @@
+import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
+
 export const CUBE_VERTICES: [number, number, number][] = [
   [-1, -1, -1],
   [1, -1, -1],
@@ -14,6 +16,12 @@ export const CUBE_EDGES: [number, number][] = [
   [4, 5], [5, 6], [6, 7], [7, 4],
   [0, 4], [1, 5], [2, 6], [3, 7]
 ]
+
+export const DEFAULT_PROJECTION_MODEL: ProjectionModel = {
+  name: 'Default cube',
+  vertices: CUBE_VERTICES,
+  edges: CUBE_EDGES
+}
 
 export const PROJECTION_CONFIG = {
   cameraDistanceDefault: 4,
