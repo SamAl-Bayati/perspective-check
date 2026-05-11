@@ -14,23 +14,23 @@ import {
 import {
   CANVAS_INTERACTION,
   CANVAS_RENDERING,
-  CUBE_EDGES,
-  CUBE_VERTICES,
+  DEFAULT_PROJECTION_MODEL,
   PROJECTION_CONFIG
 } from '@/constants/canvas-projection'
 import {
   type DragMode,
   clamp,
   clampRange,
-  fitProjectedPointsToViewport,
   getClickInputForEvent,
   getDragInputForEvent,
   getDragModeForBehavior,
   getLocalPointFromRect,
-  projectCubeVertices
+  mapProjectedPointsToViewport,
+  projectVertices
 } from '@/lib/canvas-utils'
 import { type ResolvedTheme } from '@/constants/theme'
 import { supportsTransformShortcut } from '@/lib/keybind-utils'
+import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -44,24 +44,29 @@ type BoxSelectionRect = { left: number, top: number, width: number, height: numb
 type PerspectiveProjectionCanvasProps = {
   className?: string
   navigationPreferences: CanvasNavigationPreferences
+  projectionModel: ProjectionModel | null
   resolvedTheme: ResolvedTheme
 }
 
 export function PerspectiveProjectionCanvas({
   className,
   navigationPreferences,
+  projectionModel,
   resolvedTheme
 }: PerspectiveProjectionCanvasProps) {
+  const activeProjectionModel = projectionModel ?? DEFAULT_PROJECTION_MODEL
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const scheduleDrawRef = useRef<() => void>(() => undefined)
   const preferencesRef = useRef<CanvasNavigationPreferences>(navigationPreferences)
+  const modelRef = useRef<ProjectionModel>(activeProjectionModel)
   const strokeStyleRef = useRef<StrokeStyleMode>('solid')
   const suppressContextMenuUntilRef = useRef(0)
   const allowProgrammaticContextMenuRef = useRef(false)
   const [strokeStyle, setStrokeStyle] = useState<StrokeStyleMode>('solid')
   const [boxSelectionRect, setBoxSelectionRect] = useState<BoxSelectionRect | null>(null)
   preferencesRef.current = navigationPreferences
+  modelRef.current = activeProjectionModel
 
   const openContextMenuAtClient = (clientX: number, clientY: number) => {
     const trigger = containerRef.current
@@ -103,7 +108,7 @@ export function PerspectiveProjectionCanvas({
 
   useEffect(() => {
     scheduleDrawRef.current()
-  }, [navigationPreferences, resolvedTheme])
+  }, [activeProjectionModel, navigationPreferences, resolvedTheme])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -174,7 +179,7 @@ export function PerspectiveProjectionCanvas({
       scheduleDraw()
     }
 
-    const drawCube = (timeStamp: number) => {
+    const drawModel = (timeStamp: number) => {
       context.clearRect(0, 0, cssWidth, cssHeight)
 
       const deltaSeconds = lastFrameTime === null ? 0 : (timeStamp - lastFrameTime) / 1000
@@ -196,18 +201,20 @@ export function PerspectiveProjectionCanvas({
         }
       }
 
-      const projectedPoints = projectCubeVertices(
-        CUBE_VERTICES,
+      const model = modelRef.current
+      const projectedPoints = projectVertices(
+        model.vertices,
         yaw,
         pitch,
         cameraDistance
       )
 
-      const { screenPoints: centeredPoints, bounds: centeredBounds } = fitProjectedPointsToViewport(
+      const { screenPoints: centeredPoints, bounds: centeredBounds } = mapProjectedPointsToViewport(
         projectedPoints,
         cssWidth,
         cssHeight,
-        PROJECTION_CONFIG.viewportRatioDefault * zoom
+        PROJECTION_CONFIG.viewportRatioDefault * zoom,
+        PROJECTION_CONFIG.cameraDistanceDefault
       )
 
       const visibleMargin = Math.max(
@@ -230,9 +237,16 @@ export function PerspectiveProjectionCanvas({
         CANVAS_RENDERING.strokeFallbackColor
 
       context.beginPath()
-      CUBE_EDGES.forEach(([startIndex, endIndex]) => {
-        context.moveTo(screenPoints[startIndex].x, screenPoints[startIndex].y)
-        context.lineTo(screenPoints[endIndex].x, screenPoints[endIndex].y)
+      model.edges.forEach(([startIndex, endIndex]) => {
+        const startPoint = screenPoints[startIndex]
+        const endPoint = screenPoints[endIndex]
+
+        if (!startPoint || !endPoint) {
+          return
+        }
+
+        context.moveTo(startPoint.x, startPoint.y)
+        context.lineTo(endPoint.x, endPoint.y)
       })
 
       if (strokeStyleRef.current === 'dashed') {
@@ -255,7 +269,7 @@ export function PerspectiveProjectionCanvas({
 
     const drawFrame = (timeStamp: number) => {
       frameId = null
-      drawCube(timeStamp)
+      drawModel(timeStamp)
     }
 
     const scheduleDraw = () => {

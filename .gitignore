@@ -151,3 +151,4 @@ infra/.terraform/
 *.tfstate
 *.tfstate.*
 .vscode/
+.playwright-mcp/
