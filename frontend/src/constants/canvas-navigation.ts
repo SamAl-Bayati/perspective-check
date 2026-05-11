@@ -1,6 +1,7 @@
 export type ClickInputId = 'leftClick' | 'middleClick' | 'rightClick'
 export type DragInputId =
   | 'leftDrag'
+  | 'shiftLeftDrag'
   | 'middleDrag'
   | 'shiftMiddleDrag'
   | 'altLeftDrag'
@@ -15,6 +16,8 @@ export type CanvasNavigationPreferences = {
   dragBindings: Record<DragInputId, DragBehaviorId>
 }
 
+export type CanvasNavigationPresetId = 'intuitive' | 'cad' | 'blender'
+
 type Option<TValue extends string> = {
   value: TValue
   label: string
@@ -28,6 +31,7 @@ export const CLICK_INPUT_OPTIONS: Option<ClickInputId>[] = [
 
 export const DRAG_INPUT_OPTIONS: Option<DragInputId>[] = [
   { value: 'leftDrag', label: 'Left click drag' },
+  { value: 'shiftLeftDrag', label: 'Shift + left click drag' },
   { value: 'middleDrag', label: 'Middle mouse drag' },
   { value: 'shiftMiddleDrag', label: 'Shift + middle mouse drag' },
   { value: 'altLeftDrag', label: 'Alt + left click drag' },
@@ -56,14 +60,63 @@ export const DEFAULT_CANVAS_NAVIGATION_PREFERENCES: CanvasNavigationPreferences 
     rightClick: 'openContextMenu'
   },
   dragBindings: {
-    leftDrag: 'boxSelect',
-    middleDrag: 'orbit',
-    shiftMiddleDrag: 'pan',
-    altLeftDrag: 'orbit',
-    altMiddleDrag: 'pan',
+    leftDrag: 'orbit',
+    shiftLeftDrag: 'pan',
+    middleDrag: 'boxSelect',
+    shiftMiddleDrag: 'none',
+    altLeftDrag: 'none',
+    altMiddleDrag: 'none',
     altRightDrag: 'dollyZoom'
   }
 }
+
+export const CANVAS_NAVIGATION_PRESETS: Record<
+  CanvasNavigationPresetId,
+  CanvasNavigationPreferences
+> = {
+  intuitive: DEFAULT_CANVAS_NAVIGATION_PREFERENCES,
+  cad: {
+    clickBindings: {
+      leftClick: 'selectObject',
+      middleClick: 'none',
+      rightClick: 'openContextMenu'
+    },
+    dragBindings: {
+      leftDrag: 'boxSelect',
+      shiftLeftDrag: 'none',
+      middleDrag: 'orbit',
+      shiftMiddleDrag: 'pan',
+      altLeftDrag: 'none',
+      altMiddleDrag: 'none',
+      altRightDrag: 'dollyZoom'
+    }
+  },
+  blender: {
+    clickBindings: {
+      leftClick: 'selectObject',
+      middleClick: 'none',
+      rightClick: 'openContextMenu'
+    },
+    dragBindings: {
+      leftDrag: 'boxSelect',
+      shiftLeftDrag: 'none',
+      middleDrag: 'orbit',
+      shiftMiddleDrag: 'pan',
+      altLeftDrag: 'none',
+      altMiddleDrag: 'dollyZoom',
+      altRightDrag: 'none'
+    }
+  }
+}
+
+export const CANVAS_NAVIGATION_PRESET_OPTIONS: Option<CanvasNavigationPresetId>[] = [
+  { value: 'intuitive', label: 'Intuitive' },
+  { value: 'cad', label: 'CAD Software' },
+  { value: 'blender', label: 'Blender Style' }
+]
+
+export const CANVAS_NAVIGATION_PREFERENCES_STORAGE_KEY =
+  'perspective-check.canvasNavigationPreferences'
 
 export const RESERVED_TRANSFORM_SHORTCUTS = [
   { input: 'Q / W / E / R', behavior: 'Reserved for select, move, rotate, scale tools (no-op)' },
@@ -72,4 +125,4 @@ export const RESERVED_TRANSFORM_SHORTCUTS = [
   { input: 'F / A', behavior: 'Reserved for frame selected and frame all (no-op)' }
 ] as const
 
-export const ACCEPTED_3D_FILE_EXTENSIONS = '.stl,.obj,.fbx,.gltf,.glb,.3mf'
+export const ACCEPTED_3D_FILE_EXTENSIONS = '.obj'

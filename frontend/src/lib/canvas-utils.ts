@@ -35,7 +35,7 @@ export const getLocalPointFromRect = (rect: DOMRect, clientX: number, clientY: n
   y: clientY - rect.top
 })
 
-export const projectCubeVertices = (
+export const projectVertices = (
   vertices: [number, number, number][],
   yawAngle: number,
   pitchAngle: number,
@@ -60,26 +60,21 @@ export const projectCubeVertices = (
   })
 }
 
-export const fitProjectedPointsToViewport = (
+export const mapProjectedPointsToViewport = (
   projectedPoints: Point[],
   viewportWidth: number,
   viewportHeight: number,
-  viewportRatio: number
+  viewportRatio: number,
+  scaleDistance: number
 ) => {
-  const projectedBounds = getPointBounds(projectedPoints)
-  const projectedWidth = projectedBounds.maxX - projectedBounds.minX
-  const projectedHeight = projectedBounds.maxY - projectedBounds.minY
-  const projectedMaxDimension = Math.max(projectedWidth, projectedHeight) || 1
   const targetViewportSize = Math.min(viewportWidth, viewportHeight) * viewportRatio
-  const perspectiveScale = targetViewportSize / projectedMaxDimension
-  const projectedCenterX = (projectedBounds.minX + projectedBounds.maxX) / 2
-  const projectedCenterY = (projectedBounds.minY + projectedBounds.maxY) / 2
+  const perspectiveScale = targetViewportSize * scaleDistance / 2
   const centerX = viewportWidth / 2
   const centerY = viewportHeight / 2
 
   const screenPoints = projectedPoints.map((point) => ({
-    x: centerX + (point.x - projectedCenterX) * perspectiveScale,
-    y: centerY + (point.y - projectedCenterY) * perspectiveScale
+    x: centerX + point.x * perspectiveScale,
+    y: centerY + point.y * perspectiveScale
   }))
 
   return {
@@ -108,6 +103,9 @@ export const getDragModeForBehavior = (behavior: DragBehaviorId): DragMode => {
 export const getDragInputForEvent = (event: PointerEvent): DragInputId | null => {
   if (event.button === 0 && event.altKey) {
     return 'altLeftDrag'
+  }
+  if (event.button === 0 && event.shiftKey) {
+    return 'shiftLeftDrag'
   }
   if (event.button === 1 && event.altKey) {
     return 'altMiddleDrag'
