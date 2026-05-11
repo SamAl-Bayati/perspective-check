@@ -5,6 +5,7 @@ import {
   useRef,
   useState
 } from 'react'
+import * as THREE from 'three'
 
 import {
   type CanvasNavigationPreferences,
@@ -24,9 +25,7 @@ import {
   getClickInputForEvent,
   getDragInputForEvent,
   getDragModeForBehavior,
-  getLocalPointFromRect,
-  mapProjectedPointsToViewport,
-  projectVertices
+  getLocalPointFromRect
 } from '@/lib/canvas-utils'
 import { type ResolvedTheme } from '@/constants/theme'
 import { supportsTransformShortcut } from '@/lib/keybind-utils'
@@ -40,6 +39,66 @@ import {
 
 type StrokeStyleMode = 'solid' | 'dashed'
 type BoxSelectionRect = { left: number, top: number, width: number, height: number }
+
+const getCameraFov = (viewportWidth: number, viewportHeight: number) => {
+  const aspect = viewportWidth / Math.max(1, viewportHeight)
+  const visibleHeightAtOrigin =
+    2 / PROJECTION_CONFIG.viewportRatioDefault / Math.min(1, aspect)
+
+  return THREE.MathUtils.radToDeg(
+    2 * Math.atan(visibleHeightAtOrigin / (2 * PROJECTION_CONFIG.cameraDistanceDefault))
+  )
+}
+
+const getWorldUnitsPerPixel = (camera: THREE.PerspectiveCamera, viewportHeight: number) =>
+  2 *
+  camera.position.z *
+  Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) /
+  Math.max(1, viewportHeight)
+
+const createModelGeometry = (model: ProjectionModel) => {
+  const positions = new Float32Array(model.vertices.length * 3)
+  model.vertices.forEach(([x, y, z], index) => {
+    const positionIndex = index * 3
+    positions[positionIndex] = x
+    positions[positionIndex + 1] = y
+    positions[positionIndex + 2] = z
+  })
+
+  const indexArray = model.vertices.length > 65535
+    ? new Uint32Array(model.edges.length * 2)
+    : new Uint16Array(model.edges.length * 2)
+  model.edges.forEach(([startIndex, endIndex], index) => {
+    const edgeIndex = index * 2
+    indexArray[edgeIndex] = startIndex
+    indexArray[edgeIndex + 1] = endIndex
+  })
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setIndex(new THREE.BufferAttribute(indexArray, 1))
+  geometry.computeBoundingSphere()
+
+  return geometry
+}
+
+const createLineMaterial = (strokeStyle: StrokeStyleMode, strokeColor: string) => {
+  if (strokeStyle === 'dashed') {
+    return new THREE.LineDashedMaterial({
+      color: strokeColor,
+      dashSize: 0.05,
+      gapSize: 0.035,
+      opacity: CANVAS_RENDERING.strokeAlpha,
+      transparent: true
+    })
+  }
+
+  return new THREE.LineBasicMaterial({
+    color: strokeColor,
+    opacity: CANVAS_RENDERING.strokeAlpha,
+    transparent: true
+  })
+}
 
 type PerspectiveProjectionCanvasProps = {
   className?: string
@@ -117,10 +176,28 @@ export function PerspectiveProjectionCanvas({
       return undefined
     }
 
-    const context = canvas.getContext('2d')
-    if (!context) {
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        antialias: true,
+        canvas,
+        preserveDrawingBuffer: import.meta.env.DEV
+      })
+    } catch {
       return undefined
     }
+
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(
+      getCameraFov(1, 1),
+      1,
+      0.01,
+      100
+    )
+    const modelGroup = new THREE.Group()
+    modelGroup.rotation.order = 'YXZ'
+    scene.add(modelGroup)
 
     let frameId: number | null = null
     let cssWidth = 0
@@ -155,6 +232,11 @@ export function PerspectiveProjectionCanvas({
     let pointerDownMoved = false
     let pointerDownPointerId: number | null = null
     let pointerDownClickInput: ClickInputId | null = null
+    let renderedModel: ProjectionModel | null = null
+    let lineSegments: THREE.LineSegments | null = null
+    let lineMaterial: THREE.Material | null = null
+    let lineMaterialColor = ''
+    let lineMaterialStyle: StrokeStyleMode | null = null
 
     const applyClickBehavior = (behavior: ClickBehaviorId, clientX: number, clientY: number) => {
       if (behavior === 'openContextMenu') {
@@ -168,20 +250,92 @@ export function PerspectiveProjectionCanvas({
       pointerDownClickInput = null
     }
 
+    const getStrokeColor = () =>
+      getComputedStyle(canvas).getPropertyValue(CANVAS_RENDERING.strokeVariable).trim() ||
+      CANVAS_RENDERING.strokeFallbackColor
+
+    const disposeLineSegments = () => {
+      if (!lineSegments) {
+        return
+      }
+
+      lineSegments.geometry.dispose()
+      modelGroup.remove(lineSegments)
+      lineSegments = null
+    }
+
+    const updateLineMaterial = () => {
+      const nextColor = getStrokeColor()
+      if (
+        lineMaterial &&
+        lineMaterialColor === nextColor &&
+        lineMaterialStyle === strokeStyleRef.current
+      ) {
+        return
+      }
+
+      const nextMaterial = createLineMaterial(strokeStyleRef.current, nextColor)
+
+      if (lineSegments) {
+        lineSegments.material = nextMaterial
+      }
+
+      lineMaterial?.dispose()
+      lineMaterial = nextMaterial
+      lineMaterialColor = nextColor
+      lineMaterialStyle = strokeStyleRef.current
+
+      if (lineSegments && strokeStyleRef.current === 'dashed') {
+        lineSegments.computeLineDistances()
+      }
+    }
+
+    const updateModelGeometry = () => {
+      const model = modelRef.current
+      if (renderedModel === model && lineSegments) {
+        return
+      }
+
+      disposeLineSegments()
+      renderedModel = model
+
+      const geometry = createModelGeometry(model)
+      updateLineMaterial()
+      if (!lineMaterial) {
+        geometry.dispose()
+        return
+      }
+
+      lineSegments = new THREE.LineSegments(geometry, lineMaterial)
+      modelGroup.add(lineSegments)
+
+      if (strokeStyleRef.current === 'dashed') {
+        lineSegments.computeLineDistances()
+      }
+    }
+
+    const updateCamera = () => {
+      camera.aspect = cssWidth / Math.max(1, cssHeight)
+      camera.fov = getCameraFov(cssWidth, cssHeight)
+      camera.position.z = cameraDistance / zoom
+
+      const worldUnitsPerPixel = getWorldUnitsPerPixel(camera, cssHeight)
+      camera.position.x = -panX * worldUnitsPerPixel
+      camera.position.y = panY * worldUnitsPerPixel
+      camera.rotation.set(0, 0, 0)
+      camera.updateProjectionMatrix()
+    }
+
     const resizeCanvas = () => {
       const rect = canvas.getBoundingClientRect()
-      const pixelRatio = window.devicePixelRatio || 1
       cssWidth = rect.width
       cssHeight = rect.height
-      canvas.width = Math.max(1, Math.floor(cssWidth * pixelRatio))
-      canvas.height = Math.max(1, Math.floor(cssHeight * pixelRatio))
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      renderer.setPixelRatio(window.devicePixelRatio || 1)
+      renderer.setSize(cssWidth, cssHeight, false)
       scheduleDraw()
     }
 
     const drawModel = (timeStamp: number) => {
-      context.clearRect(0, 0, cssWidth, cssHeight)
-
       const deltaSeconds = lastFrameTime === null ? 0 : (timeStamp - lastFrameTime) / 1000
       lastFrameTime = timeStamp
 
@@ -201,66 +355,14 @@ export function PerspectiveProjectionCanvas({
         }
       }
 
-      const model = modelRef.current
-      const projectedPoints = projectVertices(
-        model.vertices,
-        yaw,
-        pitch,
-        cameraDistance
-      )
-
-      const { screenPoints: centeredPoints, bounds: centeredBounds } = mapProjectedPointsToViewport(
-        projectedPoints,
-        cssWidth,
-        cssHeight,
-        PROJECTION_CONFIG.viewportRatioDefault * zoom,
-        PROJECTION_CONFIG.cameraDistanceDefault
-      )
-
-      const visibleMargin = Math.max(
-        CANVAS_INTERACTION.minVisiblePanMarginPx,
-        Math.min(cssWidth, cssHeight) * PROJECTION_CONFIG.panVisibleMarginRatio
-      )
-      const panXMin = visibleMargin - centeredBounds.maxX
-      const panXMax = cssWidth - visibleMargin - centeredBounds.minX
-      const panYMin = visibleMargin - centeredBounds.maxY
-      const panYMax = cssHeight - visibleMargin - centeredBounds.minY
-      panX = clampRange(panX, panXMin, panXMax)
-      panY = clampRange(panY, panYMin, panYMax)
-
-      const screenPoints = centeredPoints.map((point) => ({
-        x: point.x + panX,
-        y: point.y + panY
-      }))
-      const strokeColor =
-        getComputedStyle(canvas).getPropertyValue(CANVAS_RENDERING.strokeVariable).trim() ||
-        CANVAS_RENDERING.strokeFallbackColor
-
-      context.beginPath()
-      model.edges.forEach(([startIndex, endIndex]) => {
-        const startPoint = screenPoints[startIndex]
-        const endPoint = screenPoints[endIndex]
-
-        if (!startPoint || !endPoint) {
-          return
-        }
-
-        context.moveTo(startPoint.x, startPoint.y)
-        context.lineTo(endPoint.x, endPoint.y)
-      })
-
-      if (strokeStyleRef.current === 'dashed') {
-        context.setLineDash(CANVAS_RENDERING.dashedLinePattern)
-      } else {
-        context.setLineDash([])
-      }
-
-      context.strokeStyle = strokeColor
-      context.lineWidth = CANVAS_RENDERING.strokeLineWidth
-      context.globalAlpha = CANVAS_RENDERING.strokeAlpha
-      context.stroke()
-      context.setLineDash([])
-      context.globalAlpha = 1
+      const maxPan = Math.max(cssWidth, cssHeight)
+      panX = clampRange(panX, -maxPan, maxPan)
+      panY = clampRange(panY, -maxPan, maxPan)
+      modelGroup.rotation.set(pitch, yaw, 0)
+      updateModelGeometry()
+      updateLineMaterial()
+      updateCamera()
+      renderer.render(scene, camera)
 
       if (dragMode === 'orbit' || yawVelocity !== 0 || pitchVelocity !== 0) {
         frameId = window.requestAnimationFrame(drawFrame)
@@ -519,6 +621,9 @@ export function PerspectiveProjectionCanvas({
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('wheel', onWheel)
+      disposeLineSegments()
+      lineMaterial?.dispose()
+      renderer.dispose()
     }
   }, [])
 

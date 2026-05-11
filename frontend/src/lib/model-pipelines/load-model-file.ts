@@ -1,5 +1,6 @@
 import { parseObjModel } from '@/lib/model-pipelines/obj/parse-obj-model'
 import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
+import { parseStlModel } from '@/lib/model-pipelines/stl/parse-stl-model'
 
 const getFileExtension = (fileName: string) => {
   const extensionStart = fileName.lastIndexOf('.')
@@ -13,5 +14,9 @@ export const loadProjectionModelFromFile = async (file: File): Promise<Projectio
     return parseObjModel(await file.text(), file.name)
   }
 
-  throw new Error('Only OBJ files are supported right now')
+  if (extension === 'stl') {
+    return parseStlModel(await file.arrayBuffer(), file.name)
+  }
+
+  throw new Error('Only OBJ and STL files are supported right now')
 }
