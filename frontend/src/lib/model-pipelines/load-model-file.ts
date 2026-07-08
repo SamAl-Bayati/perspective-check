@@ -2,6 +2,7 @@ import ModelLoaderWorker from '@/lib/model-pipelines/model-loader.worker?worker'
 import {
   type ModelLoaderWorkerResponse
 } from '@/lib/model-pipelines/model-loader-worker-protocol'
+import { type ProjectionModelFileBundle } from '@/lib/model-pipelines/projection-model-file-bundle'
 import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
 
 const getFileExtension = (fileName: string) => {
@@ -10,6 +11,13 @@ const getFileExtension = (fileName: string) => {
 }
 
 const createAbortError = () => new DOMException('The model load was aborted', 'AbortError')
+const createFileBundle = (fileOrBundle: File | ProjectionModelFileBundle): ProjectionModelFileBundle =>
+  fileOrBundle instanceof File
+    ? {
+        entryFile: fileOrBundle,
+        relatedFiles: []
+      }
+    : fileOrBundle
 
 const readFileAsArrayBuffer = (file: File, signal?: AbortSignal) =>
   new Promise<ArrayBuffer>((resolve, reject) => {
@@ -47,13 +55,28 @@ const readFileAsArrayBuffer = (file: File, signal?: AbortSignal) =>
     reader.readAsArrayBuffer(file)
   })
 
-const parseProjectionModelInWorker = (
-  fileName: string,
-  extension: string,
-  buffer: ArrayBuffer,
+export const loadProjectionModelFromFile = async (
+  fileOrBundle: File | ProjectionModelFileBundle,
   signal?: AbortSignal
-) =>
-  new Promise<ProjectionModel>((resolve, reject) => {
+): Promise<ProjectionModel> => {
+  const fileBundle = createFileBundle(fileOrBundle)
+  const extension = getFileExtension(fileBundle.entryFile.name)
+
+  if (extension !== 'obj' && extension !== 'stl' && extension !== 'gltf' && extension !== 'glb') {
+    throw new Error('Only OBJ, STL, GLTF, and GLB files are supported right now')
+  }
+
+  const buffer = await readFileAsArrayBuffer(fileBundle.entryFile, signal)
+  const relatedFiles = await Promise.all(
+    fileBundle.relatedFiles.map(async (relatedFile) => ({
+      uri: relatedFile.uri,
+      fileName: relatedFile.file.name,
+      fileType: relatedFile.file.type,
+      buffer: await readFileAsArrayBuffer(relatedFile.file, signal)
+    }))
+  )
+
+  return new Promise<ProjectionModel>((resolve, reject) => {
     if (signal?.aborted) {
       reject(createAbortError())
       return
@@ -90,23 +113,11 @@ const parseProjectionModelInWorker = (
     worker.postMessage(
       {
         extension,
-        fileName,
-        buffer
+        fileName: fileBundle.entryFile.name,
+        buffer,
+        relatedFiles
       },
-      [buffer]
+      [buffer, ...relatedFiles.map((relatedFile) => relatedFile.buffer)]
     )
   })
-
-export const loadProjectionModelFromFile = async (
-  file: File,
-  signal?: AbortSignal
-): Promise<ProjectionModel> => {
-  const extension = getFileExtension(file.name)
-
-  if (extension !== 'obj' && extension !== 'stl') {
-    throw new Error('Only OBJ and STL files are supported right now')
-  }
-
-  const buffer = await readFileAsArrayBuffer(file, signal)
-  return parseProjectionModelInWorker(file.name, extension, buffer, signal)
 }

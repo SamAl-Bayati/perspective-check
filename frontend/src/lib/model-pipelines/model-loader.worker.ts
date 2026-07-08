@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { parseGltfModel } from '@/lib/model-pipelines/gltf/parse-gltf-model'
 import { parseObjModel } from '@/lib/model-pipelines/obj/parse-obj-model'
 import { parseStlModel } from '@/lib/model-pipelines/stl/parse-stl-model'
 import {
@@ -12,7 +13,7 @@ const postWorkerMessage = (message: ModelLoaderWorkerResponse) => {
 }
 
 self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
-  const { buffer, extension, fileName } = event.data
+  const { buffer, extension, fileName, relatedFiles } = event.data
 
   try {
     if (extension === 'obj') {
@@ -32,9 +33,27 @@ self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
       return
     }
 
+    if (extension === 'gltf' || extension === 'glb') {
+      void parseGltfModel(buffer, fileName, extension, relatedFiles).then(
+        (model) => {
+          postWorkerMessage({
+            type: 'success',
+            model
+          })
+        },
+        (error: unknown) => {
+          postWorkerMessage({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to load this 3D file'
+          })
+        }
+      )
+      return
+    }
+
     postWorkerMessage({
       type: 'error',
-      message: 'Only OBJ and STL files are supported right now'
+      message: 'Only OBJ, STL, GLTF, and GLB files are supported right now'
     })
   } catch (error) {
     postWorkerMessage({
