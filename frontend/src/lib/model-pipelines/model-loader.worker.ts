@@ -1,0 +1,47 @@
+/// <reference lib="webworker" />
+
+import { parseObjModel } from '@/lib/model-pipelines/obj/parse-obj-model'
+import { parseStlModel } from '@/lib/model-pipelines/stl/parse-stl-model'
+import {
+  type ModelLoaderWorkerRequest,
+  type ModelLoaderWorkerResponse
+} from '@/lib/model-pipelines/model-loader-worker-protocol'
+
+const postWorkerMessage = (message: ModelLoaderWorkerResponse) => {
+  self.postMessage(message)
+}
+
+self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
+  const { buffer, extension, fileName } = event.data
+
+  try {
+    if (extension === 'obj') {
+      const source = new TextDecoder().decode(buffer)
+      postWorkerMessage({
+        type: 'success',
+        model: parseObjModel(source, fileName)
+      })
+      return
+    }
+
+    if (extension === 'stl') {
+      postWorkerMessage({
+        type: 'success',
+        model: parseStlModel(buffer, fileName)
+      })
+      return
+    }
+
+    postWorkerMessage({
+      type: 'error',
+      message: 'Only OBJ and STL files are supported right now'
+    })
+  } catch (error) {
+    postWorkerMessage({
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Unable to load this 3D file'
+    })
+  }
+}
+
+export {}
