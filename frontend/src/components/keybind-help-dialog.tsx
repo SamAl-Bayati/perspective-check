@@ -1,11 +1,8 @@
 import { CircleHelp } from 'lucide-react'
 
 import {
-  CLICK_BEHAVIOR_OPTIONS,
-  CLICK_INPUT_OPTIONS,
   DRAG_BEHAVIOR_OPTIONS,
   DRAG_INPUT_OPTIONS,
-  RESERVED_TRANSFORM_SHORTCUTS,
   type CanvasNavigationPreferences
 } from '@/constants/canvas-navigation'
 import { Button } from '@/components/ui/button'
@@ -26,10 +23,6 @@ type KeybindHelpDialogProps = {
 
 export function KeybindHelpDialog({ preferences }: KeybindHelpDialogProps) {
   const mouseKeybindRows = [
-    ...CLICK_INPUT_OPTIONS.map((option) => ({
-      input: option.label,
-      behavior: getOptionLabel(CLICK_BEHAVIOR_OPTIONS, preferences.clickBindings[option.value])
-    })),
     ...DRAG_INPUT_OPTIONS.map((option) => ({
       input: option.label,
       behavior: getOptionLabel(DRAG_BEHAVIOR_OPTIONS, preferences.dragBindings[option.value])
@@ -75,27 +68,6 @@ export function KeybindHelpDialog({ preferences }: KeybindHelpDialogProps) {
                 </thead>
                 <tbody>
                   {mouseKeybindRows.map((binding) => (
-                    <tr key={binding.input} className="border-t">
-                      <td className="px-3 py-2 font-mono text-xs">{binding.input}</td>
-                      <td className="px-3 py-2">{binding.behavior}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <section>
-            <h3 className="text-sm font-semibold">Reserved Transform Shortcuts</h3>
-            <div className="mt-2 overflow-hidden rounded-md border">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/40">
-                  <tr>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">Input</th>
-                    <th scope="col" className="px-3 py-2 text-left font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {RESERVED_TRANSFORM_SHORTCUTS.map((binding) => (
                     <tr key={binding.input} className="border-t">
                       <td className="px-3 py-2 font-mono text-xs">{binding.input}</td>
                       <td className="px-3 py-2">{binding.behavior}</td>

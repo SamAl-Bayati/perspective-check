@@ -1,4 +1,4 @@
-import { CircleAlert, Moon, Plus, Sun, X } from 'lucide-react'
+import { CircleAlert, X } from 'lucide-react'
 import {
   type PointerEvent as ReactPointerEvent,
   startTransition,
@@ -12,15 +12,22 @@ import { flushSync } from 'react-dom'
 import logoPrimaryTransparent from '@/assets/logos/logo-primary-transparent.png'
 import { CanvasSettingsDialog } from '@/components/canvas-settings-dialog'
 import { KeybindHelpDialog } from '@/components/keybind-help-dialog'
+import { MobileModelInspector, ModelInspector } from '@/components/model-inspector'
 import { ModelImportDialog } from '@/components/model-import-dialog'
 import { PerspectiveProjectionCanvas } from '@/components/perspective-projection-canvas'
+import { ThemeSelector } from '@/components/theme-selector'
+import { ViewportToolbar } from '@/components/viewport-toolbar'
 import { type CanvasNavigationPreferences } from '@/constants/canvas-navigation'
 import { APP_SHELL_CLASSES } from '@/constants/app-shell'
+import {
+  DEFAULT_MODEL_VIEWER_SETTINGS,
+  type ModelViewerSettings
+} from '@/constants/model-materials'
 import { type ThemePreference } from '@/constants/theme'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
   applyResolvedTheme,
@@ -42,7 +49,11 @@ import {
   persistLastProjectionModelFile
 } from '@/lib/model-pipelines/persisted-model-file'
 import { type ProjectionModelFileBundle } from '@/lib/model-pipelines/projection-model-file-bundle'
-import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
+import {
+  createDefaultProjectionModelAsset,
+  getInitialViewerSettingsForAsset,
+  type ProjectionModelAsset
+} from '@/lib/model-viewer/projection-model-asset'
 
 type ModelLoadSource = 'manual' | 'restore'
 type ModelLoadResult = 'loaded' | 'failed' | 'ignored'
@@ -54,7 +65,7 @@ type ModelLoadState = {
 }
 type ModelViewState = {
   selectedFileName: string | null
-  projectionModel: ProjectionModel | null
+  projectionModel: ProjectionModelAsset
 }
 type StatusNotice = {
   id: number
@@ -82,18 +93,21 @@ function App() {
   const activeModelLoadIdRef = useRef(0)
   const activeModelLoadRef = useRef<ActiveModelLoad | null>(null)
   const cancelingStateTimeoutRef = useRef<number | null>(null)
+  const modelDisposalTimeoutRef = useRef<number | null>(null)
   const statusNoticeIdRef = useRef(0)
   const statusNoticeTimersRef = useRef(new Map<number, { dismissTimer: number, removeTimer: number | null }>())
-  const transientStatusStackRef = useRef<HTMLDivElement | null>(null)
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null)
   const [modelLoadState, setModelLoadState] = useState<ModelLoadState | null>(null)
-  const [projectionModel, setProjectionModel] = useState<ProjectionModel | null>(null)
+  const [projectionModel, setProjectionModel] = useState(createDefaultProjectionModelAsset)
+  const [viewerSettings, setViewerSettings] = useState<ModelViewerSettings>(() => ({
+    ...DEFAULT_MODEL_VIEWER_SETTINGS,
+    defaultMaterial: { ...DEFAULT_MODEL_VIEWER_SETTINGS.defaultMaterial }
+  }))
   const [statusNotices, setStatusNotices] = useState<StatusNotice[]>([])
-  const [transientStatusStackHeight, setTransientStatusStackHeight] = useState(0)
   const [isModelImportDialogOpen, setIsModelImportDialogOpen] = useState(false)
   const currentModelViewStateRef = useRef<ModelViewState>({
     selectedFileName: null,
-    projectionModel: null
+    projectionModel
   })
   const [navigationPreferences, setNavigationPreferencesState] = useState(
     getStoredCanvasNavigationPreferences
@@ -225,13 +239,32 @@ function App() {
     })
 
     try {
+      const loadStartedAt = performance.now()
       const nextModel = await loadProjectionModelFromFile(fileBundle, abortController.signal)
       if (!isMountedRef.current || activeModelLoadIdRef.current !== loadId) {
+        nextModel.dispose()
         return 'ignored'
       }
 
+      nextModel.stats.loadTimeMs = performance.now() - loadStartedAt
       setProjectionModel(nextModel)
       setSelectedFileName(fileBundle.entryFile.name)
+      setViewerSettings((currentSettings) =>
+        getInitialViewerSettingsForAsset(nextModel, currentSettings)
+      )
+      currentModelViewStateRef.current = {
+        selectedFileName: fileBundle.entryFile.name,
+        projectionModel: nextModel
+      }
+      window.requestAnimationFrame(() => {
+        if (previousState.projectionModel !== nextModel) {
+          previousState.projectionModel.dispose()
+        }
+      })
+      nextModel.warnings.slice(0, 3).forEach(pushStatusNotice)
+      if (nextModel.warnings.length > 3) {
+        pushStatusNotice(`${nextModel.warnings.length - 3} additional import warnings were omitted`)
+      }
 
       if (!persistLoadedFile) {
         return 'loaded'
@@ -320,32 +353,15 @@ function App() {
     })
   }
 
-  const handleThemeToggle = () => {
-    setThemePreference(resolvedTheme === 'dark' ? 'light' : 'dark')
-  }
-
   useEffect(() => {
     applyResolvedTheme(resolvedTheme)
   }, [resolvedTheme])
 
   useEffect(() => {
-    const transientStatusStack = transientStatusStackRef.current
-    if (!transientStatusStack || typeof ResizeObserver === 'undefined') {
-      return undefined
+    if (modelDisposalTimeoutRef.current !== null) {
+      window.clearTimeout(modelDisposalTimeoutRef.current)
+      modelDisposalTimeoutRef.current = null
     }
-
-    const resizeObserver = new ResizeObserver(([entry]) => {
-      setTransientStatusStackHeight(entry?.contentRect.height ?? 0)
-    })
-    resizeObserver.observe(transientStatusStack)
-    setTransientStatusStackHeight(transientStatusStack.getBoundingClientRect().height)
-
-    return () => {
-      resizeObserver.disconnect()
-    }
-  }, [statusNotices])
-
-  useEffect(() => {
     isMountedRef.current = true
     const statusNoticeTimers = statusNoticeTimersRef.current
 
@@ -384,6 +400,7 @@ function App() {
     })
 
     return () => {
+      const modelToDispose = currentModelViewStateRef.current.projectionModel
       activeModelLoadRef.current?.abortController.abort()
       activeModelLoadRef.current = null
       isMountedRef.current = false
@@ -393,104 +410,86 @@ function App() {
       statusNoticeTimers.forEach((timers, noticeId) => {
         clearStatusNoticeTimers(noticeId)
       })
+      modelDisposalTimeoutRef.current = window.setTimeout(() => {
+        modelToDispose.dispose()
+        modelDisposalTimeoutRef.current = null
+      }, 0)
     }
   }, [])
 
   return (
     <TooltipProvider>
       <main className={APP_SHELL_CLASSES.mainViewport}>
-        <PerspectiveProjectionCanvas
-          className={APP_SHELL_CLASSES.canvas}
-          navigationPreferences={navigationPreferences}
-          projectionModel={projectionModel}
-          resolvedTheme={resolvedTheme}
-        />
-
-        <header className={APP_SHELL_CLASSES.logoContainer}>
-          <img
-            src={logoPrimaryTransparent}
-            alt="PerspectiveCheck logo"
-            className={APP_SHELL_CLASSES.logoImage}
+        <section className={APP_SHELL_CLASSES.workspace}>
+          <PerspectiveProjectionCanvas
+            className={APP_SHELL_CLASSES.canvas}
+            navigationPreferences={navigationPreferences}
+            projectionModel={projectionModel}
+            resolvedTheme={resolvedTheme}
+            viewerSettings={viewerSettings}
           />
-        </header>
 
-        {modelLoadState ? (
-          <div
-            className={APP_SHELL_CLASSES.loadingIndicatorContainer}
-            role="status"
-            aria-live="polite"
-            aria-busy={modelLoadState.phase === 'loading'}
-          >
-            <div className={APP_SHELL_CLASSES.loadingIndicatorPanel}>
-              <Spinner className="size-5 text-primary" />
-              <span>{modelLoadState.message}</span>
-              {isRestoreLoading ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onPointerDown={handleRestoreCancelPointerDown}
-                  onClick={cancelRestoreLoad}
-                  aria-label="Cancel restoring saved model"
-                  className="bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive"
-                >
-                  <X className="size-4" />
-                </Button>
-              ) : null}
-            </div>
+          <header className={APP_SHELL_CLASSES.logoContainer}>
+            <img
+              src={logoPrimaryTransparent}
+              alt="PerspectiveCheck logo"
+              className={APP_SHELL_CLASSES.logoImage}
+            />
+          </header>
+
+          <div className={APP_SHELL_CLASSES.viewportToolbarContainer}>
+            <ViewportToolbar
+              disabled={isModelLoading}
+              model={projectionModel}
+              settings={viewerSettings}
+              onChange={setViewerSettings}
+              onImport={() => setIsModelImportDialogOpen(true)}
+            />
           </div>
-        ) : null}
 
-        <div className={APP_SHELL_CLASSES.themeToggleContainer}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={handleThemeToggle}
-                aria-label={resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className={APP_SHELL_CLASSES.toolbarButton}
-              >
-                {resolvedTheme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+          <div className={APP_SHELL_CLASSES.appearanceControlsContainer}>
+            <ThemeSelector value={themePreferenceState} onChange={setThemePreference} />
+            <MobileModelInspector
+              model={projectionModel}
+              settings={viewerSettings}
+              onChange={setViewerSettings}
+            />
+            <CanvasSettingsDialog
+              preferences={navigationPreferences}
+              onPreferencesChange={setNavigationPreferences}
+            />
+            <KeybindHelpDialog preferences={navigationPreferences} />
+          </div>
 
-        {selectedFileName || statusNotices.length > 0 ? (
-          <div className={APP_SHELL_CLASSES.statusStackContainer}>
-            {selectedFileName ? (
-              <div
-                className={APP_SHELL_CLASSES.statusPersistentWrapper}
-                style={{ marginBottom: transientStatusStackHeight }}
-              >
-                <Card
-                  className={cn(
-                    APP_SHELL_CLASSES.statusCard,
-                    APP_SHELL_CLASSES.statusPersistentCard
-                  )}
-                  role="status"
-                  aria-live="polite"
-                >
-                  Loaded file: {selectedFileName}
-                  {projectionModel ? (
-                    <span className="ml-2">
-                      {projectionModel.vertices.length} vertices, {projectionModel.edges.length} edges
-                    </span>
-                  ) : null}
-                </Card>
-              </div>
-            ) : null}
-
+          {modelLoadState ? (
             <div
-              ref={transientStatusStackRef}
-              className={APP_SHELL_CLASSES.statusTransientStack}
-              aria-live="assertive"
+              className={APP_SHELL_CLASSES.loadingIndicatorContainer}
+              role="status"
+              aria-live="polite"
+              aria-busy={modelLoadState.phase === 'loading'}
             >
+              <div className={APP_SHELL_CLASSES.loadingIndicatorPanel}>
+                <Spinner className="size-5 text-primary" />
+                <span>{modelLoadState.message}</span>
+                {isRestoreLoading ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onPointerDown={handleRestoreCancelPointerDown}
+                    onClick={cancelRestoreLoad}
+                    aria-label="Cancel restoring saved model"
+                    className="bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {statusNotices.length > 0 ? (
+            <div className={APP_SHELL_CLASSES.statusStackContainer} aria-live="assertive">
               {statusNotices.map((notice) => (
                 <div
                   key={notice.id}
@@ -517,37 +516,25 @@ function App() {
                 </div>
               ))}
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        <div className={APP_SHELL_CLASSES.toolbarContainer}>
-          <div className={APP_SHELL_CLASSES.toolbarPanel}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setIsModelImportDialogOpen(true)}
-                  aria-label={isModelLoading ? 'Loading 3D file' : 'Add 3D file'}
-                  className={APP_SHELL_CLASSES.toolbarButton}
-                  disabled={isModelLoading}
-                >
-                  {isModelLoading ? <Spinner className="size-4" /> : <Plus className="size-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{isModelLoading ? 'Loading model' : 'Add 3D file'}</TooltipContent>
-            </Tooltip>
+          <footer className={APP_SHELL_CLASSES.statusBar} role="status" aria-live="polite">
+            <span className="min-w-0 truncate" title={selectedFileName ?? projectionModel.name}>
+              {selectedFileName ?? projectionModel.name}
+            </span>
+            <span className="uppercase text-muted-foreground">{projectionModel.format}</span>
+            <span className="ml-auto hidden tabular-nums text-muted-foreground sm:inline">
+              {projectionModel.stats.vertices.toLocaleString()} vertices ·{' '}
+              {projectionModel.stats.triangles.toLocaleString()} triangles
+            </span>
+          </footer>
+        </section>
 
-            <CanvasSettingsDialog
-              preferences={navigationPreferences}
-              onPreferencesChange={setNavigationPreferences}
-              themePreference={themePreferenceState}
-              onThemePreferenceChange={setThemePreference}
-            />
-            <KeybindHelpDialog preferences={navigationPreferences} />
-          </div>
-        </div>
+        <ModelInspector
+          model={projectionModel}
+          settings={viewerSettings}
+          onChange={setViewerSettings}
+        />
 
         <ModelImportDialog
           open={isModelImportDialogOpen}

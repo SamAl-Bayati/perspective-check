@@ -55,18 +55,23 @@ function ModelImportDialog({
   onOpenChange
 }: ModelImportDialogProps) {
   const entryInputRef = useRef<HTMLInputElement | null>(null)
+  const additionalInputRef = useRef<HTMLInputElement | null>(null)
   const relatedInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const entryPreparationIdRef = useRef(0)
   const [selectedFormatId, setSelectedFormatId] = useState<ModelImportFormatId | null>(null)
   const [entryFile, setEntryFile] = useState<File | null>(null)
   const [entrySelectionSummary, setEntrySelectionSummary] = useState<string | null>(null)
   const [requirementSelections, setRequirementSelections] = useState<ModelImportRequirementSelection[]>([])
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([])
+  const [allowAdditionalFiles, setAllowAdditionalFiles] = useState(false)
   const [isPreparingEntry, setIsPreparingEntry] = useState(false)
 
   const selectedFormat = selectedFormatId ? MODEL_IMPORT_FORMATS_BY_ID[selectedFormatId] : null
   const isImportReady =
     entryFile !== null &&
-    requirementSelections.every((requirementSelection) => requirementSelection.file !== null) &&
+    requirementSelections.every((requirementSelection) =>
+      !requirementSelection.required || requirementSelection.file !== null
+    ) &&
     !isPreparingEntry
 
   const resetDialog = () => {
@@ -75,6 +80,8 @@ function ModelImportDialog({
     setEntryFile(null)
     setEntrySelectionSummary(null)
     setRequirementSelections([])
+    setAdditionalFiles([])
+    setAllowAdditionalFiles(false)
     setIsPreparingEntry(false)
   }
 
@@ -84,6 +91,8 @@ function ModelImportDialog({
     setEntryFile(null)
     setEntrySelectionSummary(null)
     setRequirementSelections([])
+    setAdditionalFiles([])
+    setAllowAdditionalFiles(false)
     setIsPreparingEntry(false)
   }
 
@@ -101,6 +110,8 @@ function ModelImportDialog({
     setEntryFile(null)
     setEntrySelectionSummary(null)
     setRequirementSelections([])
+    setAdditionalFiles([])
+    setAllowAdditionalFiles(false)
 
     try {
       const preparation = await selectedFormat.prepareSelection(file)
@@ -117,6 +128,7 @@ function ModelImportDialog({
           preparation.prefilledRelatedFiles
         )
       )
+      setAllowAdditionalFiles(preparation.allowAdditionalFiles ?? false)
     } catch (error) {
       if (entryPreparationIdRef.current !== preparationId) {
         return
@@ -166,6 +178,12 @@ function ModelImportDialog({
     )
   }
 
+  const handleAdditionalFilesChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ''
+    setAdditionalFiles(files)
+  }
+
   const handleImport = async () => {
     if (!entryFile) {
       onError('Choose the main 3D file before importing')
@@ -173,7 +191,7 @@ function ModelImportDialog({
     }
 
     const missingRequirement = requirementSelections.find(
-      (requirementSelection) => requirementSelection.file === null
+      (requirementSelection) => requirementSelection.required && requirementSelection.file === null
     )
     if (missingRequirement) {
       onError(`Choose the required file for ${missingRequirement.uri}`)
@@ -182,16 +200,21 @@ function ModelImportDialog({
 
     const fileBundle: ProjectionModelFileBundle = {
       entryFile,
-      relatedFiles: requirementSelections.flatMap((requirementSelection) =>
-        requirementSelection.file
-          ? [
-              {
-                uri: requirementSelection.uri,
-                file: requirementSelection.file
-              }
-            ]
-          : []
-      )
+      relatedFiles: [
+        ...requirementSelections.flatMap((requirementSelection) =>
+          requirementSelection.file
+            ? [
+                {
+                  uri: requirementSelection.uri,
+                  file: requirementSelection.file
+                }
+              ]
+            : []
+        ),
+        ...additionalFiles
+          .filter((file) => !requirementSelections.some((selection) => selection.file === file))
+          .map((file) => ({ uri: file.name, file }))
+      ]
     }
 
     resetDialog()
@@ -291,7 +314,12 @@ function ModelImportDialog({
                   <div className="grid gap-3">
                     {requirementSelections.map((requirementSelection) => (
                       <Card key={requirementSelection.id} className="rounded-lg bg-background p-3">
-                        <div className="text-sm font-medium">{requirementSelection.label}</div>
+                        <div className="text-sm font-medium">
+                          {requirementSelection.label}
+                          {!requirementSelection.required ? (
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">Optional</span>
+                          ) : null}
+                        </div>
                         <div className="mt-1 break-all text-xs text-muted-foreground">
                           Expected path: {requirementSelection.uri}
                         </div>
@@ -338,6 +366,40 @@ function ModelImportDialog({
                 ) : entryFile ? (
                   <Card className="rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
                     No additional files are required for this import.
+                  </Card>
+                ) : null}
+
+                {entryFile && allowAdditionalFiles ? (
+                  <Card className="rounded-lg bg-background p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium">OBJ texture files</div>
+                        <p className="text-xs text-muted-foreground">
+                          Add image sidecars referenced by the selected MTL files
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => additionalInputRef.current?.click()}
+                      >
+                        Choose files
+                      </Button>
+                    </div>
+                    {additionalFiles.length > 0 ? (
+                      <p className="mt-2 break-all text-xs text-muted-foreground">
+                        {additionalFiles.map((file) => file.name).join(', ')}
+                      </p>
+                    ) : null}
+                    <input
+                      ref={additionalInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleAdditionalFilesChange}
+                      className="hidden"
+                    />
                   </Card>
                 ) : null}
               </Card>

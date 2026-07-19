@@ -1,28 +1,3 @@
-import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
-
-export const CUBE_VERTICES: [number, number, number][] = [
-  [-1, -1, -1],
-  [1, -1, -1],
-  [1, 1, -1],
-  [-1, 1, -1],
-  [-1, -1, 1],
-  [1, -1, 1],
-  [1, 1, 1],
-  [-1, 1, 1]
-]
-
-export const CUBE_EDGES: [number, number][] = [
-  [0, 1], [1, 2], [2, 3], [3, 0],
-  [4, 5], [5, 6], [6, 7], [7, 4],
-  [0, 4], [1, 5], [2, 6], [3, 7]
-]
-
-export const DEFAULT_PROJECTION_MODEL: ProjectionModel = {
-  name: 'Default cube',
-  vertices: CUBE_VERTICES,
-  edges: CUBE_EDGES
-}
-
 export const PROJECTION_CONFIG = {
   cameraDistanceDefault: 4,
   cameraDistanceMin: 2.2,
@@ -40,6 +15,8 @@ export const PROJECTION_CONFIG = {
 } as const
 
 export const CANVAS_RENDERING = {
+  backgroundFallbackColor: '#d7d9de',
+  backgroundVariable: '--projection-background',
   strokeFallbackColor: '#000000',
   strokeVariable: '--projection-stroke',
   strokeLineWidth: 1.8,
@@ -48,9 +25,6 @@ export const CANVAS_RENDERING = {
 } as const
 
 export const CANVAS_INTERACTION = {
-  pointerMoveThreshold: 4,
-  contextMenuSuppressDurationMs: 400,
-  minVisiblePanMarginPx: 20,
   orbitVelocitySampleMinDeltaSeconds: 0.01,
   orbitInertiaReleaseMaxAgeMs: 70,
   orbitInertiaMinSpeed: 0.6,

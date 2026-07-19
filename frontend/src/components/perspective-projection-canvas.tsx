@@ -1,44 +1,28 @@
 import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   useEffect,
-  useRef,
-  useState
+  useRef
 } from 'react'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 
 import {
-  type CanvasNavigationPreferences,
-  type ClickBehaviorId,
-  type ClickInputId
+  type CanvasNavigationPreferences
 } from '@/constants/canvas-navigation'
 import {
   CANVAS_INTERACTION,
   CANVAS_RENDERING,
-  DEFAULT_PROJECTION_MODEL,
   PROJECTION_CONFIG
 } from '@/constants/canvas-projection'
+import { type ModelViewerSettings } from '@/constants/model-materials'
 import {
   type DragMode,
   clamp,
   clampRange,
-  getClickInputForEvent,
   getDragInputForEvent,
-  getDragModeForBehavior,
-  getLocalPointFromRect
+  getDragModeForBehavior
 } from '@/lib/canvas-utils'
 import { type ResolvedTheme } from '@/constants/theme'
-import { supportsTransformShortcut } from '@/lib/keybind-utils'
-import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger
-} from '@/components/ui/context-menu'
-
-type StrokeStyleMode = 'solid' | 'dashed'
-type BoxSelectionRect = { left: number, top: number, width: number, height: number }
+import { type ProjectionModelAsset } from '@/lib/model-viewer/projection-model-asset'
 
 const getCameraFov = (viewportWidth: number, viewportHeight: number) => {
   const aspect = viewportWidth / Math.max(1, viewportHeight)
@@ -56,123 +40,37 @@ const getWorldUnitsPerPixel = (camera: THREE.PerspectiveCamera, viewportHeight: 
   Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) /
   Math.max(1, viewportHeight)
 
-const createModelGeometry = (model: ProjectionModel) => {
-  const positions = new Float32Array(model.vertices.length * 3)
-  model.vertices.forEach(([x, y, z], index) => {
-    const positionIndex = index * 3
-    positions[positionIndex] = x
-    positions[positionIndex + 1] = y
-    positions[positionIndex + 2] = z
-  })
-
-  const indexArray = model.vertices.length > 65535
-    ? new Uint32Array(model.edges.length * 2)
-    : new Uint16Array(model.edges.length * 2)
-  model.edges.forEach(([startIndex, endIndex], index) => {
-    const edgeIndex = index * 2
-    indexArray[edgeIndex] = startIndex
-    indexArray[edgeIndex + 1] = endIndex
-  })
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  geometry.setIndex(new THREE.BufferAttribute(indexArray, 1))
-  geometry.computeBoundingSphere()
-
-  return geometry
-}
-
-const createLineMaterial = (strokeStyle: StrokeStyleMode, strokeColor: string) => {
-  if (strokeStyle === 'dashed') {
-    return new THREE.LineDashedMaterial({
-      color: strokeColor,
-      dashSize: 0.05,
-      gapSize: 0.035,
-      opacity: CANVAS_RENDERING.strokeAlpha,
-      transparent: true
-    })
-  }
-
-  return new THREE.LineBasicMaterial({
-    color: strokeColor,
-    opacity: CANVAS_RENDERING.strokeAlpha,
-    transparent: true
-  })
-}
-
 type PerspectiveProjectionCanvasProps = {
   className?: string
   navigationPreferences: CanvasNavigationPreferences
-  projectionModel: ProjectionModel | null
+  projectionModel: ProjectionModelAsset
   resolvedTheme: ResolvedTheme
+  viewerSettings: ModelViewerSettings
 }
 
 export function PerspectiveProjectionCanvas({
   className,
   navigationPreferences,
   projectionModel,
-  resolvedTheme
+  resolvedTheme,
+  viewerSettings
 }: PerspectiveProjectionCanvasProps) {
-  const activeProjectionModel = projectionModel ?? DEFAULT_PROJECTION_MODEL
-  const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const scheduleDrawRef = useRef<() => void>(() => undefined)
   const preferencesRef = useRef<CanvasNavigationPreferences>(navigationPreferences)
-  const modelRef = useRef<ProjectionModel>(activeProjectionModel)
-  const strokeStyleRef = useRef<StrokeStyleMode>('solid')
-  const suppressContextMenuUntilRef = useRef(0)
-  const allowProgrammaticContextMenuRef = useRef(false)
-  const [strokeStyle, setStrokeStyle] = useState<StrokeStyleMode>('solid')
-  const [boxSelectionRect, setBoxSelectionRect] = useState<BoxSelectionRect | null>(null)
+  const modelRef = useRef<ProjectionModelAsset>(projectionModel)
+  const viewerSettingsRef = useRef<ModelViewerSettings>(viewerSettings)
   preferencesRef.current = navigationPreferences
-  modelRef.current = activeProjectionModel
-
-  const openContextMenuAtClient = (clientX: number, clientY: number) => {
-    const trigger = containerRef.current
-    if (!trigger) {
-      return
-    }
-
-    allowProgrammaticContextMenuRef.current = true
-
-    trigger.dispatchEvent(
-      new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        clientX,
-        clientY,
-        button: 2
-      })
-    )
-  }
-
-  const handleContextMenuCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (allowProgrammaticContextMenuRef.current) {
-      allowProgrammaticContextMenuRef.current = false
-      return
-    }
-
-    const nativeEvent = event.nativeEvent
-    if (nativeEvent.timeStamp <= suppressContextMenuUntilRef.current) {
-      suppressContextMenuUntilRef.current = 0
-      event.preventDefault()
-      return
-    }
-
-    const rightClickBehavior = preferencesRef.current.clickBindings.rightClick
-    if (rightClickBehavior !== 'openContextMenu') {
-      event.preventDefault()
-    }
-  }
+  modelRef.current = projectionModel
+  viewerSettingsRef.current = viewerSettings
 
   useEffect(() => {
     scheduleDrawRef.current()
-  }, [activeProjectionModel, navigationPreferences, resolvedTheme])
+  }, [navigationPreferences, projectionModel, resolvedTheme, viewerSettings])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const container = containerRef.current
-    if (!canvas || !container) {
+    if (!canvas) {
       return undefined
     }
 
@@ -189,6 +87,18 @@ export function PerspectiveProjectionCanvas({
     }
 
     const scene = new THREE.Scene()
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1
+    const roomEnvironment = new RoomEnvironment()
+    const pmremGenerator = new THREE.PMREMGenerator(renderer)
+    const environmentTarget = pmremGenerator.fromScene(roomEnvironment)
+    roomEnvironment.dispose()
+    scene.environment = environmentTarget.texture
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+    keyLight.position.set(3, 4, 5)
+    const fillLight = new THREE.HemisphereLight(0xffffff, 0x5d6470, 0.55)
+    scene.add(keyLight, fillLight)
     const camera = new THREE.PerspectiveCamera(
       getCameraFov(1, 1),
       1,
@@ -224,94 +134,22 @@ export function PerspectiveProjectionCanvas({
     let dragLastClientX = 0
     let dragLastClientY = 0
     let dragLastTime: number | null = null
-    let selectionStartX = 0
-    let selectionStartY = 0
-    let boxSelectionMoved = false
-    let pointerDownClientX = 0
-    let pointerDownClientY = 0
-    let pointerDownMoved = false
-    let pointerDownPointerId: number | null = null
-    let pointerDownClickInput: ClickInputId | null = null
-    let renderedModel: ProjectionModel | null = null
-    let lineSegments: THREE.LineSegments | null = null
-    let lineMaterial: THREE.Material | null = null
-    let lineMaterialColor = ''
-    let lineMaterialStyle: StrokeStyleMode | null = null
-
-    const applyClickBehavior = (behavior: ClickBehaviorId, clientX: number, clientY: number) => {
-      if (behavior === 'openContextMenu') {
-        openContextMenuAtClient(clientX, clientY)
-      }
-    }
-
-    const resetPointerDownState = () => {
-      pointerDownMoved = false
-      pointerDownPointerId = null
-      pointerDownClickInput = null
-    }
+    let renderedModel: ProjectionModelAsset | null = null
 
     const getStrokeColor = () =>
       getComputedStyle(canvas).getPropertyValue(CANVAS_RENDERING.strokeVariable).trim() ||
       CANVAS_RENDERING.strokeFallbackColor
 
-    const disposeLineSegments = () => {
-      if (!lineSegments) {
-        return
-      }
-
-      lineSegments.geometry.dispose()
-      modelGroup.remove(lineSegments)
-      lineSegments = null
-    }
-
-    const updateLineMaterial = () => {
-      const nextColor = getStrokeColor()
-      if (
-        lineMaterial &&
-        lineMaterialColor === nextColor &&
-        lineMaterialStyle === strokeStyleRef.current
-      ) {
-        return
-      }
-
-      const nextMaterial = createLineMaterial(strokeStyleRef.current, nextColor)
-
-      if (lineSegments) {
-        lineSegments.material = nextMaterial
-      }
-
-      lineMaterial?.dispose()
-      lineMaterial = nextMaterial
-      lineMaterialColor = nextColor
-      lineMaterialStyle = strokeStyleRef.current
-
-      if (lineSegments && strokeStyleRef.current === 'dashed') {
-        lineSegments.computeLineDistances()
-      }
-    }
-
     const updateModelGeometry = () => {
       const model = modelRef.current
-      if (renderedModel === model && lineSegments) {
-        return
+      if (renderedModel !== model) {
+        if (renderedModel) {
+          modelGroup.remove(renderedModel.root)
+        }
+        renderedModel = model
+        modelGroup.add(model.root)
       }
-
-      disposeLineSegments()
-      renderedModel = model
-
-      const geometry = createModelGeometry(model)
-      updateLineMaterial()
-      if (!lineMaterial) {
-        geometry.dispose()
-        return
-      }
-
-      lineSegments = new THREE.LineSegments(geometry, lineMaterial)
-      modelGroup.add(lineSegments)
-
-      if (strokeStyleRef.current === 'dashed') {
-        lineSegments.computeLineDistances()
-      }
+      model.applyViewerSettings(viewerSettingsRef.current, getStrokeColor())
     }
 
     const updateCamera = () => {
@@ -330,7 +168,7 @@ export function PerspectiveProjectionCanvas({
       const rect = canvas.getBoundingClientRect()
       cssWidth = rect.width
       cssHeight = rect.height
-      renderer.setPixelRatio(window.devicePixelRatio || 1)
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
       renderer.setSize(cssWidth, cssHeight, false)
       scheduleDraw()
     }
@@ -360,8 +198,11 @@ export function PerspectiveProjectionCanvas({
       panY = clampRange(panY, -maxPan, maxPan)
       modelGroup.rotation.set(pitch, yaw, 0)
       updateModelGeometry()
-      updateLineMaterial()
       updateCamera()
+      const backgroundColor = getComputedStyle(canvas)
+        .getPropertyValue(CANVAS_RENDERING.backgroundVariable)
+        .trim() || CANVAS_RENDERING.backgroundFallbackColor
+      scene.background = new THREE.Color(backgroundColor)
       renderer.render(scene, camera)
 
       if (dragMode === 'orbit' || yawVelocity !== 0 || pitchVelocity !== 0) {
@@ -403,14 +244,6 @@ export function PerspectiveProjectionCanvas({
         pitchVelocity = 0
       }
 
-      if (mode === 'boxSelect') {
-        const local = getLocalPointFromRect(canvas.getBoundingClientRect(), event.clientX, event.clientY)
-        selectionStartX = local.x
-        selectionStartY = local.y
-        boxSelectionMoved = false
-        setBoxSelectionRect(null)
-      }
-
       if (canvas.setPointerCapture) {
         canvas.setPointerCapture(event.pointerId)
       }
@@ -419,10 +252,6 @@ export function PerspectiveProjectionCanvas({
     const endDrag = (event: PointerEvent) => {
       if (activePointerId !== event.pointerId) {
         return
-      }
-
-      if (dragMode === 'boxSelect') {
-        setBoxSelectionRect(null)
       }
 
       if (dragMode === 'orbit') {
@@ -460,14 +289,6 @@ export function PerspectiveProjectionCanvas({
     }
 
     const onPointerDown = (event: PointerEvent) => {
-      container.focus()
-
-      pointerDownClientX = event.clientX
-      pointerDownClientY = event.clientY
-      pointerDownMoved = false
-      pointerDownPointerId = event.pointerId
-      pointerDownClickInput = getClickInputForEvent(event)
-
       const dragInput = getDragInputForEvent(event)
       if (!dragInput) {
         return
@@ -475,11 +296,6 @@ export function PerspectiveProjectionCanvas({
 
       const dragBehavior = preferencesRef.current.dragBindings[dragInput]
       const mode = getDragModeForBehavior(dragBehavior)
-
-      if (dragInput === 'altRightDrag') {
-        suppressContextMenuUntilRef.current =
-          event.timeStamp + CANVAS_INTERACTION.contextMenuSuppressDurationMs
-      }
 
       if (event.button === 1 || dragInput === 'altRightDrag') {
         event.preventDefault()
@@ -499,14 +315,6 @@ export function PerspectiveProjectionCanvas({
     }
 
     const onPointerMove = (event: PointerEvent) => {
-      if (pointerDownPointerId === event.pointerId) {
-        const deltaClickX = event.clientX - pointerDownClientX
-        const deltaClickY = event.clientY - pointerDownClientY
-        pointerDownMoved =
-          pointerDownMoved ||
-          Math.hypot(deltaClickX, deltaClickY) > CANVAS_INTERACTION.pointerMoveThreshold
-      }
-
       if (event.pointerId !== activePointerId) {
         return
       }
@@ -551,22 +359,6 @@ export function PerspectiveProjectionCanvas({
         )
         yawVelocity = 0
         pitchVelocity = 0
-      } else if (dragMode === 'boxSelect') {
-        const local = getLocalPointFromRect(canvas.getBoundingClientRect(), event.clientX, event.clientY)
-        const dragWidth = local.x - selectionStartX
-        const dragHeight = local.y - selectionStartY
-        boxSelectionMoved =
-          boxSelectionMoved ||
-          Math.hypot(dragWidth, dragHeight) > CANVAS_INTERACTION.pointerMoveThreshold
-
-        if (boxSelectionMoved) {
-          setBoxSelectionRect({
-            left: Math.min(selectionStartX, local.x),
-            top: Math.min(selectionStartY, local.y),
-            width: Math.abs(dragWidth),
-            height: Math.abs(dragHeight)
-          })
-        }
       }
 
       dragLastClientX = event.clientX
@@ -576,19 +368,10 @@ export function PerspectiveProjectionCanvas({
     }
 
     const onPointerUp = (event: PointerEvent) => {
-      if (pointerDownPointerId === event.pointerId && !pointerDownMoved && pointerDownClickInput) {
-        const clickBehavior = preferencesRef.current.clickBindings[pointerDownClickInput]
-        if (!(pointerDownClickInput === 'rightClick' && clickBehavior === 'openContextMenu')) {
-          applyClickBehavior(clickBehavior, event.clientX, event.clientY)
-        }
-      }
-
-      resetPointerDownState()
       endDrag(event)
     }
 
     const onPointerCancel = (event: PointerEvent) => {
-      resetPointerDownState()
       endDrag(event)
     }
 
@@ -621,66 +404,25 @@ export function PerspectiveProjectionCanvas({
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('wheel', onWheel)
-      disposeLineSegments()
-      lineMaterial?.dispose()
+      if (renderedModel) {
+        modelGroup.remove(renderedModel.root)
+      }
+      environmentTarget.dispose()
+      pmremGenerator.dispose()
       renderer.dispose()
     }
   }, [])
 
-  const toggleStrokeStyle = () => {
-    setStrokeStyle((previous) => {
-      const nextStrokeStyle = previous === 'solid' ? 'dashed' : 'solid'
-      strokeStyleRef.current = nextStrokeStyle
-      scheduleDrawRef.current()
-      return nextStrokeStyle
-    })
-  }
-
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (!supportsTransformShortcut(event)) {
-      return
-    }
-
-    event.preventDefault()
-  }
-
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          ref={containerRef}
-          tabIndex={0}
-          onKeyDown={handleKeyDown}
-          onContextMenuCapture={handleContextMenuCapture}
-          className={`relative outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${className ?? ''}`}
-        >
-          <canvas
-            ref={canvasRef}
-            aria-label="Perspective projection canvas"
-            className="h-full w-full touch-none"
-          />
-          {boxSelectionRect ? (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute rounded-sm border border-primary/70 bg-primary/10"
-              style={{
-                left: boxSelectionRect.left,
-                top: boxSelectionRect.top,
-                width: boxSelectionRect.width,
-                height: boxSelectionRect.height
-              }}
-            />
-          ) : null}
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-52">
-        <ContextMenuItem onSelect={toggleStrokeStyle}>
-          <span>Stroke style</span>
-          <span className="ml-auto text-xs uppercase tracking-wide text-muted-foreground">
-            {strokeStyle}
-          </span>
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    <div
+      onContextMenu={(event) => event.preventDefault()}
+      className={`relative ${className ?? ''}`}
+    >
+      <canvas
+        ref={canvasRef}
+        aria-label="Perspective projection canvas"
+        className="h-full w-full touch-none"
+      />
+    </div>
   )
 }
