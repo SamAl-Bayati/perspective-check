@@ -1,132 +1,188 @@
 import {
   type ModelEdge,
+  type ModelTriangle,
   type ModelVertex,
   type ProjectionModel
 } from '@/lib/model-pipelines/projection-model'
-import { normalizeProjectionVertices } from '@/lib/model-pipelines/projection-model-utils'
+import {
+  addUniqueEdge,
+  createIndexArray,
+  flattenEdges,
+  flattenVertices,
+  getUndirectedEdgeKey,
+  getVertexKey,
+  isDegenerateTriangle
+} from '@/lib/model-pipelines/projection-model-utils'
 
-type Triangle = [number, number, number]
+type StlFacet = {
+  normal: ModelVertex | null
+  vertices: [ModelVertex, ModelVertex, ModelVertex]
+}
 
 const BINARY_STL_HEADER_BYTES = 80
 const BINARY_STL_TRIANGLE_COUNT_BYTES = 4
 const BINARY_STL_TRIANGLE_BYTES = 50
 const BINARY_STL_VERTEX_OFFSET = 12
 const BINARY_STL_FLOAT_BYTES = 4
-const TRIANGLE_VERTEX_COUNT = 3
-
 const numberPattern = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?'
-const vertexLinePattern = new RegExp(
+const vertexPattern = new RegExp(
   `^vertex\\s+(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s*$`,
   'i'
 )
+const normalPattern = new RegExp(
+  `^facet\\s+normal\\s+(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s*$`,
+  'i'
+)
 
-const getVertexKey = ([x, y, z]: ModelVertex) =>
-  [x, y, z].map((coordinate) => Object.is(coordinate, -0) ? '0' : coordinate.toPrecision(12)).join(':')
-
-const addEdge = (edges: Map<string, ModelEdge>, startIndex: number, endIndex: number) => {
-  if (startIndex === endIndex) {
-    return
+const parseVector = (match: RegExpExecArray, message: string): ModelVertex => {
+  const vector = match.slice(1, 4).map(Number) as ModelVertex
+  if (vector.some((value) => !Number.isFinite(value))) {
+    throw new Error(message)
   }
-
-  const edgeStart = Math.min(startIndex, endIndex)
-  const edgeEnd = Math.max(startIndex, endIndex)
-  const edgeKey = `${edgeStart}:${edgeEnd}`
-
-  if (!edges.has(edgeKey)) {
-    edges.set(edgeKey, [edgeStart, edgeEnd])
-  }
+  return vector
 }
 
-const addTriangleEdges = (edges: Map<string, ModelEdge>, [a, b, c]: Triangle) => {
-  addEdge(edges, a, b)
-  addEdge(edges, b, c)
-  addEdge(edges, c, a)
-}
-
-const appendVertex = (
-  vertex: ModelVertex,
-  vertices: ModelVertex[],
-  vertexLookup: Map<string, number>
-) => {
-  const vertexKey = getVertexKey(vertex)
-  const existingIndex = vertexLookup.get(vertexKey)
-
-  if (existingIndex !== undefined) {
-    return existingIndex
+const orientFacet = (facet: StlFacet): StlFacet => {
+  const [a, b, c] = facet.vertices
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+  const geometricNormal: ModelVertex = [
+    ab[1] * ac[2] - ab[2] * ac[1],
+    ab[2] * ac[0] - ab[0] * ac[2],
+    ab[0] * ac[1] - ab[1] * ac[0]
+  ]
+  const suppliedNormal = facet.normal
+  if (!suppliedNormal) {
+    return facet
   }
 
-  const nextIndex = vertices.length
-  vertices.push(vertex)
-  vertexLookup.set(vertexKey, nextIndex)
-  return nextIndex
+  const suppliedLengthSquared = suppliedNormal.reduce((sum, value) => sum + value * value, 0)
+  const dot = suppliedNormal.reduce(
+    (sum, value, index) => sum + value * geometricNormal[index],
+    0
+  )
+
+  return suppliedLengthSquared > Number.EPSILON && dot < 0
+    ? { ...facet, vertices: [a, c, b] }
+    : facet
 }
 
-const buildProjectionModel = (
-  name: string,
-  rawTriangles: ModelVertex[][]
-): ProjectionModel => {
+const buildProjectionModel = (name: string, facets: StlFacet[]): ProjectionModel => {
   const vertices: ModelVertex[] = []
   const vertexLookup = new Map<string, number>()
+  const triangles: ModelTriangle[] = []
   const edges = new Map<string, ModelEdge>()
+  const faceCountByEdge = new Map<string, number>()
+  let degenerateCount = 0
 
-  rawTriangles.forEach((triangle) => {
-    if (triangle.length !== TRIANGLE_VERTEX_COUNT) {
-      throw new Error('STL triangle must contain exactly three vertices')
+  const appendVertex = (vertex: ModelVertex) => {
+    const key = getVertexKey(vertex)
+    const existing = vertexLookup.get(key)
+    if (existing !== undefined) {
+      return existing
+    }
+    const index = vertices.length
+    vertices.push(vertex)
+    vertexLookup.set(key, index)
+    return index
+  }
+
+  facets.map(orientFacet).forEach((facet) => {
+    if (isDegenerateTriangle(facet.vertices)) {
+      degenerateCount += 1
+      return
     }
 
-    const triangleIndices = triangle.map((vertex) =>
-      appendVertex(vertex, vertices, vertexLookup)
-    ) as Triangle
-
-    addTriangleEdges(edges, triangleIndices)
+    const triangle = facet.vertices.map(appendVertex) as ModelTriangle
+    triangles.push(triangle)
+    const triangleEdges = [
+      [triangle[0], triangle[1]],
+      [triangle[1], triangle[2]],
+      [triangle[2], triangle[0]]
+    ]
+    triangleEdges.forEach(([start, end]) => {
+      const edgeKey = getUndirectedEdgeKey(start, end)
+      faceCountByEdge.set(edgeKey, (faceCountByEdge.get(edgeKey) ?? 0) + 1)
+    })
+    addUniqueEdge(edges, triangle[0], triangle[1])
+    addUniqueEdge(edges, triangle[1], triangle[2])
+    addUniqueEdge(edges, triangle[2], triangle[0])
   })
 
-  if (vertices.length === 0 || edges.size === 0) {
-    throw new Error('STL file does not contain any triangles to render')
+  if (vertices.length === 0 || triangles.length === 0) {
+    throw new Error('STL file does not contain any valid triangles to render')
+  }
+
+  const positions = flattenVertices(vertices)
+  const triangleIndices = triangles.flat()
+  const edgeValues = flattenEdges(Array.from(edges.values()))
+  const nonManifoldEdgeCount = Array.from(faceCountByEdge.values())
+    .filter((faceCount) => faceCount > 2).length
+  const warnings: string[] = []
+  if (degenerateCount > 0) {
+    warnings.push(`Skipped ${degenerateCount} degenerate STL triangle${degenerateCount === 1 ? '' : 's'}`)
+  }
+  if (nonManifoldEdgeCount > 0) {
+    warnings.push(`STL contains ${nonManifoldEdgeCount} non-manifold edge${nonManifoldEdgeCount === 1 ? '' : 's'}`)
   }
 
   return {
     name,
-    vertices: normalizeProjectionVertices(vertices),
-    edges: Array.from(edges.values())
+    format: 'stl',
+    meshes: [{
+      name,
+      positions,
+      indices: createIndexArray(triangleIndices, vertices.length)
+    }],
+    wireframe: {
+      positions: new Float32Array(positions),
+      indices: createIndexArray(edgeValues, vertices.length)
+    },
+    materials: [],
+    warnings,
+    sourceVertexCount: vertices.length,
+    triangleCount: triangles.length
   }
 }
 
 const parseAsciiStlModel = (source: string, name: string): ProjectionModel => {
-  const vertices = source
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .flatMap((line) => {
-      const match = vertexLinePattern.exec(line)
-      if (!match) {
-        return []
+  const facets: StlFacet[] = []
+  let normal: ModelVertex | null = null
+  let vertices: ModelVertex[] = []
+
+  source.split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim()
+    const normalMatch = normalPattern.exec(line)
+    if (normalMatch) {
+      normal = parseVector(normalMatch, 'ASCII STL includes an invalid facet normal')
+      vertices = []
+      return
+    }
+
+    const vertexMatch = vertexPattern.exec(line)
+    if (vertexMatch) {
+      vertices.push(parseVector(vertexMatch, 'ASCII STL includes an invalid vertex'))
+      return
+    }
+
+    if (/^endfacet\s*$/i.test(line)) {
+      if (vertices.length !== 3) {
+        throw new Error('ASCII STL facet must contain exactly three vertices')
       }
+      facets.push({
+        normal,
+        vertices: vertices as [ModelVertex, ModelVertex, ModelVertex]
+      })
+      normal = null
+      vertices = []
+    }
+  })
 
-      const vertex = match.slice(1, 4).map(Number)
-      if (vertex.some((coordinate) => !Number.isFinite(coordinate))) {
-        throw new Error('ASCII STL includes a vertex with invalid coordinates')
-      }
-
-      return [vertex as ModelVertex]
-    })
-
-  if (vertices.length === 0) {
-    throw new Error('ASCII STL file does not contain any vertices')
+  if (facets.length === 0) {
+    throw new Error('ASCII STL file does not contain any complete facets')
   }
 
-  if (vertices.length % TRIANGLE_VERTEX_COUNT !== 0) {
-    throw new Error('ASCII STL file contains an incomplete triangle')
-  }
-
-  const triangles = Array.from(
-    { length: vertices.length / TRIANGLE_VERTEX_COUNT },
-    (_, index) => vertices.slice(
-      index * TRIANGLE_VERTEX_COUNT,
-      index * TRIANGLE_VERTEX_COUNT + TRIANGLE_VERTEX_COUNT
-    )
-  )
-
-  return buildProjectionModel(name, triangles)
+  return buildProjectionModel(name, facets)
 }
 
 const isBinaryStl = (buffer: ArrayBuffer) => {
@@ -136,42 +192,42 @@ const isBinaryStl = (buffer: ArrayBuffer) => {
 
   const view = new DataView(buffer)
   const triangleCount = view.getUint32(BINARY_STL_HEADER_BYTES, true)
-  return (
-    BINARY_STL_HEADER_BYTES +
-    BINARY_STL_TRIANGLE_COUNT_BYTES +
-    triangleCount * BINARY_STL_TRIANGLE_BYTES
-  ) === buffer.byteLength
+  return BINARY_STL_HEADER_BYTES + BINARY_STL_TRIANGLE_COUNT_BYTES +
+    triangleCount * BINARY_STL_TRIANGLE_BYTES === buffer.byteLength
+}
+
+const readBinaryVector = (view: DataView, offset: number): ModelVertex => {
+  const vector: ModelVertex = [
+    view.getFloat32(offset, true),
+    view.getFloat32(offset + BINARY_STL_FLOAT_BYTES, true),
+    view.getFloat32(offset + BINARY_STL_FLOAT_BYTES * 2, true)
+  ]
+  if (vector.some((value) => !Number.isFinite(value))) {
+    throw new Error('Binary STL includes an invalid vector')
+  }
+  return vector
 }
 
 const parseBinaryStlModel = (buffer: ArrayBuffer, name: string): ProjectionModel => {
   const view = new DataView(buffer)
   const triangleCount = view.getUint32(BINARY_STL_HEADER_BYTES, true)
-  const triangles = Array.from({ length: triangleCount }, (_, triangleIndex) => {
-    const triangleOffset =
-      BINARY_STL_HEADER_BYTES +
-      BINARY_STL_TRIANGLE_COUNT_BYTES +
+  const facets = Array.from({ length: triangleCount }, (_, triangleIndex) => {
+    const triangleOffset = BINARY_STL_HEADER_BYTES + BINARY_STL_TRIANGLE_COUNT_BYTES +
       triangleIndex * BINARY_STL_TRIANGLE_BYTES
+    const vertices = Array.from({ length: 3 }, (_, vertexIndex) =>
+      readBinaryVector(
+        view,
+        triangleOffset + BINARY_STL_VERTEX_OFFSET + vertexIndex * 3 * BINARY_STL_FLOAT_BYTES
+      )
+    ) as [ModelVertex, ModelVertex, ModelVertex]
 
-    return Array.from({ length: TRIANGLE_VERTEX_COUNT }, (_, vertexIndex) => {
-      const vertexOffset =
-        triangleOffset +
-        BINARY_STL_VERTEX_OFFSET +
-        vertexIndex * TRIANGLE_VERTEX_COUNT * BINARY_STL_FLOAT_BYTES
-      const vertex: ModelVertex = [
-        view.getFloat32(vertexOffset, true),
-        view.getFloat32(vertexOffset + BINARY_STL_FLOAT_BYTES, true),
-        view.getFloat32(vertexOffset + BINARY_STL_FLOAT_BYTES * 2, true)
-      ]
-
-      if (vertex.some((coordinate) => !Number.isFinite(coordinate))) {
-        throw new Error('Binary STL includes a vertex with invalid coordinates')
-      }
-
-      return vertex
-    })
+    return {
+      normal: readBinaryVector(view, triangleOffset),
+      vertices
+    }
   })
 
-  return buildProjectionModel(name, triangles)
+  return buildProjectionModel(name, facets)
 }
 
 export const parseStlModel = (buffer: ArrayBuffer, name: string): ProjectionModel => {
@@ -179,6 +235,5 @@ export const parseStlModel = (buffer: ArrayBuffer, name: string): ProjectionMode
     return parseBinaryStlModel(buffer, name)
   }
 
-  const source = new TextDecoder().decode(buffer)
-  return parseAsciiStlModel(source, name)
+  return parseAsciiStlModel(new TextDecoder().decode(buffer), name)
 }

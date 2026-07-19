@@ -1,5 +1,6 @@
 import { type ModelImportFormatId, type ModelImportPreparation } from '@/lib/model-import/model-import-types'
 import { GLTF_ENTRY_FILE_ACCEPT, inspectGltfImportFile } from '@/lib/model-pipelines/gltf/gltf-import-utils'
+import { inspectObjImportFile } from '@/lib/model-pipelines/obj/obj-import-utils'
 
 type ModelImportFormatDefinition = {
   id: ModelImportFormatId
@@ -45,11 +46,11 @@ export const MODEL_IMPORT_FORMATS: ModelImportFormatDefinition[] = [
   {
     id: 'obj',
     title: 'OBJ',
-    description: 'Import a single OBJ geometry file.',
+    description: 'Import OBJ geometry with optional MTL materials and textures.',
     entryLabel: 'OBJ file',
-    entryHint: 'Choose one .obj file.',
+    entryHint: 'Choose an .obj file, then add its optional material sidecars.',
     entryAccept: '.obj',
-    prepareSelection: (file) => createSingleFilePreparation(file, 'obj')
+    prepareSelection: inspectObjImportFile
   },
   {
     id: 'gltf',
@@ -65,4 +66,3 @@ export const MODEL_IMPORT_FORMATS: ModelImportFormatDefinition[] = [
 export const MODEL_IMPORT_FORMATS_BY_ID = Object.fromEntries(
   MODEL_IMPORT_FORMATS.map((format) => [format.id, format])
 ) as Record<ModelImportFormatId, ModelImportFormatDefinition>
-

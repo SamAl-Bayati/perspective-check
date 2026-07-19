@@ -28,6 +28,7 @@
   --input: #d8cfe7;
   --ring: var(--brand-coral);
   --projection-stroke: #000000;
+  --projection-background: #d7d9de;
   --radius: 0.625rem;
   --chart-1: var(--brand-primary);
   --chart-2: var(--brand-teal);
@@ -68,6 +69,7 @@
   --input: rgb(255 255 255 / 18%);
   --ring: #e26d5c;
   --projection-stroke: #ffffff;
+  --projection-background: #292631;
   --chart-1: var(--brand-primary);
   --chart-2: var(--brand-teal);
   --chart-3: var(--brand-coral);

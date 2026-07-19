@@ -1,15 +1,18 @@
 /// <reference lib="webworker" />
 
-import { parseGltfModel } from '@/lib/model-pipelines/gltf/parse-gltf-model'
 import { parseObjModel } from '@/lib/model-pipelines/obj/parse-obj-model'
 import { parseStlModel } from '@/lib/model-pipelines/stl/parse-stl-model'
+import { getProjectionModelTransferables } from '@/lib/model-pipelines/projection-model'
 import {
   type ModelLoaderWorkerRequest,
   type ModelLoaderWorkerResponse
 } from '@/lib/model-pipelines/model-loader-worker-protocol'
 
 const postWorkerMessage = (message: ModelLoaderWorkerResponse) => {
-  self.postMessage(message)
+  self.postMessage(
+    message,
+    message.type === 'success' ? getProjectionModelTransferables(message.model) : []
+  )
 }
 
 self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
@@ -18,9 +21,15 @@ self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
   try {
     if (extension === 'obj') {
       const source = new TextDecoder().decode(buffer)
+      const textRelatedFiles = relatedFiles
+        .filter((relatedFile) => relatedFile.fileName.toLowerCase().endsWith('.mtl'))
+        .map((relatedFile) => ({
+          uri: relatedFile.uri,
+          source: new TextDecoder().decode(relatedFile.buffer)
+        }))
       postWorkerMessage({
         type: 'success',
-        model: parseObjModel(source, fileName)
+        model: parseObjModel(source, fileName, textRelatedFiles)
       })
       return
     }
@@ -33,27 +42,9 @@ self.onmessage = (event: MessageEvent<ModelLoaderWorkerRequest>) => {
       return
     }
 
-    if (extension === 'gltf' || extension === 'glb') {
-      void parseGltfModel(buffer, fileName, extension, relatedFiles).then(
-        (model) => {
-          postWorkerMessage({
-            type: 'success',
-            model
-          })
-        },
-        (error: unknown) => {
-          postWorkerMessage({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Unable to load this 3D file'
-          })
-        }
-      )
-      return
-    }
-
     postWorkerMessage({
       type: 'error',
-      message: 'Only OBJ, STL, GLTF, and GLB files are supported right now'
+      message: 'The model worker only supports OBJ and STL files'
     })
   } catch (error) {
     postWorkerMessage({
