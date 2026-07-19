@@ -28,7 +28,8 @@ const createRequirement = (
   uri,
   kind,
   label: getRequirementLabel(uri, kind),
-  accept: kind === 'buffer' ? '.bin,application/octet-stream' : 'image/*'
+  accept: kind === 'buffer' ? '.bin,application/octet-stream' : 'image/*',
+  required: kind === 'buffer'
 })
 
 const createRequirementsFromBuffer = (buffer: ArrayBuffer, extension: 'gltf' | 'glb') => {
@@ -111,12 +112,14 @@ export const extractGltfBundleFromArchive = async (
     const resolvedPath = resolveGltfResourceUri(modelEntry.name, requirement.uri)
     const matchedEntry = archiveEntryByPath.get(resolvedPath)
 
-    if (!matchedEntry) {
+    if (!matchedEntry && requirement.required) {
       throw new Error(
-        requirement.kind === 'buffer'
-          ? `ZIP archive is missing required binary file: ${requirement.uri}`
-          : `ZIP archive is missing required image file: ${requirement.uri}`
+        `ZIP archive is missing required binary file: ${requirement.uri}`
       )
+    }
+
+    if (!matchedEntry) {
+      continue
     }
 
     prefilledRelatedFiles.push({

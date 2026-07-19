@@ -3,7 +3,10 @@ import {
   type ModelLoaderWorkerResponse
 } from '@/lib/model-pipelines/model-loader-worker-protocol'
 import { type ProjectionModelFileBundle } from '@/lib/model-pipelines/projection-model-file-bundle'
-import { type ProjectionModel } from '@/lib/model-pipelines/projection-model'
+import {
+  createProjectionModelAsset,
+  type ProjectionModelAsset
+} from '@/lib/model-viewer/projection-model-asset'
 
 const getFileExtension = (fileName: string) => {
   const extensionStart = fileName.lastIndexOf('.')
@@ -58,12 +61,19 @@ const readFileAsArrayBuffer = (file: File, signal?: AbortSignal) =>
 export const loadProjectionModelFromFile = async (
   fileOrBundle: File | ProjectionModelFileBundle,
   signal?: AbortSignal
-): Promise<ProjectionModel> => {
+): Promise<ProjectionModelAsset> => {
   const fileBundle = createFileBundle(fileOrBundle)
   const extension = getFileExtension(fileBundle.entryFile.name)
 
   if (extension !== 'obj' && extension !== 'stl' && extension !== 'gltf' && extension !== 'glb') {
     throw new Error('Only OBJ, STL, GLTF, and GLB files are supported right now')
+  }
+
+  if (extension === 'gltf' || extension === 'glb') {
+    const { loadGltfProjectionModelAsset } = await import(
+      '@/lib/model-pipelines/gltf/parse-gltf-model'
+    )
+    return loadGltfProjectionModelAsset(fileBundle, extension, signal)
   }
 
   const buffer = await readFileAsArrayBuffer(fileBundle.entryFile, signal)
@@ -76,7 +86,7 @@ export const loadProjectionModelFromFile = async (
     }))
   )
 
-  return new Promise<ProjectionModel>((resolve, reject) => {
+  return new Promise<ProjectionModelAsset>((resolve, reject) => {
     if (signal?.aborted) {
       reject(createAbortError())
       return
@@ -97,7 +107,14 @@ export const loadProjectionModelFromFile = async (
     worker.onmessage = (event: MessageEvent<ModelLoaderWorkerResponse>) => {
       cleanup()
       if (event.data.type === 'success') {
-        resolve(event.data.model)
+        void createProjectionModelAsset(event.data.model, fileBundle).then((asset) => {
+          if (signal?.aborted) {
+            asset.dispose()
+            reject(createAbortError())
+            return
+          }
+          resolve(asset)
+        }, reject)
         return
       }
 
